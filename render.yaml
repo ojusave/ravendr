@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: ravendr-web
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: ASSEMBLYAI_API_KEY
+        displayName: AssemblyAI API Key
+        description: "Required: your AssemblyAI API key for the Voice Agent API. Get one at https://www.assemblyai.com/app"
+        required: true
+        sensitive: true
+        sync: false
+      - key: RENDER_API_KEY
+        displayName: Render API Key
+        description: "Required: your Render API key for triggering workflow tasks. Get one at https://render.com/docs/api#1-create-an-api-key"
+        required: true
+        sensitive: true
+        sync: false
+      - key: WORKFLOW_SLUG
+        displayName: Workflow Slug
+        description: "The slug of your Ravendr workflow service (defaults to ravendr-workflows)"
+        required: false
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ravendr-db
+          property: connectionString
+      - key: NODE_VERSION
+        value: "22"
+
+databases:
+  - name: ravendr-db
+    plan: starter
