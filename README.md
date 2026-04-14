@@ -2,9 +2,9 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ojusave/ravendr)
 
-A voice-first personal knowledge base. You talk to it, and it accumulates what you know over time.
+A voice-first personal knowledge base. You talk to it, and it builds up what you know over time.
 
-The interesting part is how voice maps to durable tasks. When you mention a topic, the voice agent ([AssemblyAI](https://www.assemblyai.com)) fires off an ingest workflow in the background: a fact-check against the live web via [You.com](https://you.com), a deep research pass, then synthesis and storage in PostgreSQL. You keep talking. Later, when you ask "what do I know about quantum computing?", a recall workflow searches your knowledge base, checks whether anything has gone stale, and reads back a spoken briefing. Each of these runs as a [Render Workflow](https://render.com/workflows) with its own task tree, retries, and timeouts visible in the Dashboard. The AI agents that handle synthesis and cross-referencing are built with [Mastra](https://mastra.ai) and Anthropic's Claude.
+The voice agent ([AssemblyAI](https://www.assemblyai.com)) listens and calls tools mid-conversation. Mention a topic and a background ingest workflow kicks off: [You.com](https://you.com) fact-checks the claim and deep-researches the topic in parallel, then a [Mastra](https://mastra.ai) agent (Anthropic Claude) synthesizes the results into a knowledge entry in PostgreSQL. You keep talking. When you ask "what do I know about quantum computing?", a recall workflow searches and freshness-checks your entries before building a spoken briefing the agent reads back. You can also ask for a report that clusters and cross-references everything you've stored. All three run as durable [Render Workflows](https://render.com/workflows): you can watch each step complete in the Dashboard.
 
 ## Table of Contents
 
@@ -67,9 +67,9 @@ const started = await render.workflows.startTask(`${WORKFLOW_SLUG}/recall`, [que
 const finished = await started.get();
 ```
 
-The three workflows have different shapes. Ingest is fire-and-forget: the fact-check and deep-dive tasks run in parallel, merge into a synthesized entry, and store it. You keep talking while this happens. Recall blocks: it needs to search, check freshness, and build a briefing before the agent can speak. Report is the expensive one: it clusters all your knowledge by topic, then spins up a `crossReference` task for each cluster in parallel before generating the final document.
+The diagram above shows the three workflow shapes. The code snippet shows the two calling patterns: `startTask` alone for fire-and-forget, `startTask` + `.get()` when the voice agent needs a result before it can speak.
 
-The Render Dashboard shows the full task tree with inputs, outputs, duration, and retry history:
+Here's what the Render Dashboard shows for an ingest run:
 
 ```
 ingest                                         starter  300s
@@ -169,13 +169,13 @@ src/
     └── index.html         # Voice UI and workflow activity panel
 ```
 
-Two database tables: `knowledge_entries` stores topics with sources, confidence scores, and cross-references. `workflow_runs` tracks task status for the activity panel.
+Two database tables: `knowledge_entries` for stored topics (with sources and confidence scoring) and `workflow_runs` for the activity panel.
 
 ## API
 
 ### `WebSocket /ws/voice`
 
-Proxies audio between the browser and AssemblyAI's Voice Agent API. The server intercepts `tool.call` events, routes them to Render Workflows, and sends back `tool.result` events.
+Proxies audio between the browser and AssemblyAI's Voice Agent API. The server intercepts `tool.call` events and routes them to Render Workflows, returning `tool.result` events with the output.
 
 Client sends PCM16 audio:
 ```json
