@@ -2,9 +2,9 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ojusave/ravendr)
 
-A voice-first personal knowledge base. You talk to it, and it builds up what you know over time.
+A voice-first personal knowledge base.
 
-The voice agent ([AssemblyAI](https://www.assemblyai.com)) listens and calls tools mid-conversation. Mention a topic and a background ingest workflow kicks off: [You.com](https://you.com) fact-checks the claim and deep-researches the topic in parallel, then a [Mastra](https://mastra.ai) agent (Anthropic Claude) synthesizes the results into a knowledge entry in PostgreSQL. You keep talking. When you ask "what do I know about quantum computing?", a recall workflow searches and freshness-checks your entries before building a spoken briefing the agent reads back. You can also ask for a report that clusters and cross-references everything you've stored. All three run as durable [Render Workflows](https://render.com/workflows): you can watch each step complete in the Dashboard.
+A Hono server proxies WebSocket audio between the browser and [AssemblyAI](https://www.assemblyai.com)'s voice agent, intercepting tool calls to trigger background [Render Workflows](https://render.com/workflows). The workflows use [You.com](https://you.com) for web research and [Mastra](https://mastra.ai) agents (Anthropic Claude) for synthesis. Knowledge accumulates in PostgreSQL across conversations.
 
 ## Table of Contents
 
