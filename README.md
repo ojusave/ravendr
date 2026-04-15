@@ -17,44 +17,9 @@ A Hono server proxies WebSocket audio between the browser and [AssemblyAI](https
 
 ## How It Works
 
-```mermaid
-flowchart TD
-    Mic["User speaks"] --> AAI["AssemblyAI Voice Agent"]
-    AAI -->|"tool.call"| Router["Tool Router"]
+![Architecture](static/images/architecture.png)
 
-    Router -->|"learn_topic"| Ingest
-    Router -->|"recall_topic"| Recall
-    Router -->|"generate_report"| Report
-    Router -->|"check_status"| Status["Poll Render API"]
-
-    subgraph Ingest ["Ingest Workflow (fire-and-forget)"]
-        direction TB
-        FC["factCheck (You.com lite)"]
-        DD["deepDive (You.com deep)"]
-        FC --> Connect["connect (Mastra agent)"]
-        DD --> Connect
-        Connect --> Store["store (PostgreSQL)"]
-    end
-
-    subgraph Recall ["Recall Workflow (trigger-and-wait)"]
-        direction TB
-        Search["search (PostgreSQL)"]
-        Search --> Freshen["freshen (You.com lite)"]
-        Freshen --> Synth["synthesize (Mastra agent)"]
-    end
-
-    subgraph Report ["Report Workflow (long-running)"]
-        direction TB
-        Gather["gather (PostgreSQL)"]
-        Gather --> Cluster["cluster (Mastra agent)"]
-        Cluster --> XRef["crossReference x N (parallel)"]
-        XRef --> Gen["generateReport (Mastra agent)"]
-    end
-
-    Synth -->|"briefing"| AAI
-    Status -->|"status"| AAI
-    AAI -->|"reply.audio"| Speaker["Agent speaks"]
-```
+![Workflow pipelines](static/images/pipelines.png)
 
 The voice proxy in `src/voice/proxy.ts` handles AssemblyAI's `tool.call` events by routing them to Render Workflows via the `@renderinc/sdk`:
 
