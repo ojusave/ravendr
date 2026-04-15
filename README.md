@@ -2,182 +2,97 @@
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ojusave/ravendr)
 
-A voice-first personal knowledge base.
+A voice-first personal knowledge base. Talk to it, and it researches, fact-checks, stores, and recalls what you've discussed: across conversations.
 
-A Hono server proxies WebSocket audio between the browser and [AssemblyAI](https://www.assemblyai.com)'s voice agent, intercepting tool calls to trigger background [Render Workflows](https://render.com/workflows). The workflows use [You.com](https://you.com) for web research and [Mastra](https://mastra.ai) agents (Anthropic Claude) for synthesis. Knowledge accumulates in PostgreSQL across conversations.
-
-## Table of Contents
-
-- [How It Works](#how-it-works)
-- [Deploy](#deploy)
-- [Environment Variables](#environment-variables)
-- [Project Structure](#project-structure)
-- [API](#api)
-- [Troubleshooting](#troubleshooting)
-
-## How It Works
+## How it works
 
 ![Architecture](static/images/architecture.png)
 
+The web service proxies WebSocket audio between the browser and [AssemblyAI](https://www.assemblyai.com)'s voice agent. When the agent calls a tool, the server routes it to a [Render Workflow](https://render.com/workflows) that runs in the background.
+
 ![Workflow pipelines](static/images/pipelines.png)
 
-The voice proxy in `src/voice/proxy.ts` handles AssemblyAI's `tool.call` events by routing them to Render Workflows via the `@renderinc/sdk`:
+Two calling patterns: `startTask` alone for fire-and-forget (ingest runs while you keep talking), `startTask` + `.get()` when the voice agent needs a result before it can speak (recall).
 
-```typescript
-// Ingest: fire-and-forget (background research while you keep talking)
-const started = await render.workflows.startTask(`${WORKFLOW_SLUG}/ingest`, [topic, claim]);
+## Prerequisites
 
-// Recall: trigger-and-wait (blocks until the briefing is ready)
-const started = await render.workflows.startTask(`${WORKFLOW_SLUG}/recall`, [query]);
-const finished = await started.get();
-```
-
-The diagram above shows the three workflow shapes. The code snippet shows the two calling patterns: `startTask` alone for fire-and-forget, `startTask` + `.get()` when the voice agent needs a result before it can speak.
-
-Here's what the Render Dashboard shows for an ingest run:
-
-```
-ingest                                         starter  300s
-├── factCheck "quantum computing"              starter   30s   ✓ 4.2s
-├── deepDive "quantum computing"               standard 120s   ✓ 28s
-├── connect                                    starter   60s   ✓ 8.1s
-└── store                                      starter   30s   ✓ 0.3s
-```
+- [AssemblyAI](https://www.assemblyai.com/app), [Render](https://render.com/docs/api#1-create-an-api-key), [Anthropic](https://console.anthropic.com/), and [You.com](https://you.com) API keys
+- A [Render account](https://render.com/register?utm_source=github&utm_medium=referral&utm_campaign=ojus_demos&utm_content=readme_link)
 
 ## Deploy
 
-Ravendr runs as two Render services: a **web service** and a **workflow service**.
+### 1. Web service + database (via Blueprint)
 
-### Prerequisites
+Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the web service and a PostgreSQL database. Set `ASSEMBLYAI_API_KEY` and `RENDER_API_KEY` during setup.
 
-You need API keys from four providers:
+### 2. Workflow service (manual)
 
-- [AssemblyAI](https://www.assemblyai.com/app): voice agent (web service)
-- [Render](https://render.com/docs/api#1-create-an-api-key): workflow triggers (web service)
-- [Anthropic](https://console.anthropic.com/): Claude for AI agents (workflow service)
-- [You.com](https://you.com): web research (workflow service)
+1. [Render Dashboard](https://dashboard.render.com) > **New** > **Workflow**
+2. Connect the same repo
+3. Build: `npm install && npm run build`
+4. Start: `node dist/workflows/index.js`
+5. Name: `ravendr-workflows` (must match `WORKFLOW_SLUG`)
+6. Env vars: `ANTHROPIC_API_KEY`, `YOU_API_KEY`, `DATABASE_URL` ([Internal URL](https://render.com/docs/databases#connecting-from-within-render)), `NODE_VERSION`: `22`
 
-Don't have a Render account? [Sign up here](https://render.com/register?utm_source=github&utm_medium=referral&utm_campaign=ojus_demos&utm_content=readme_link).
+## Configuration
 
-### Step 1: Deploy the web service via Blueprint
-
-Click **Deploy to Render** at the top of this page. The Blueprint creates the web service and a PostgreSQL database. You'll set `ASSEMBLYAI_API_KEY` and `RENDER_API_KEY` during setup.
-
-### Step 2: Create the workflow service manually
-
-Render Workflows are not yet supported in Blueprint files.
-
-1. In the [Render Dashboard](https://dashboard.render.com), click **New** > **Workflow**
-2. Connect the same GitHub repo
-3. **Build Command**: `npm install && npm run build`
-4. **Start Command**: `node dist/workflows/index.js`
-5. Add environment variables:
-   - `ANTHROPIC_API_KEY` (required)
-   - `YOU_API_KEY` (required)
-   - `DATABASE_URL`: copy from the `ravendr-db` database's connection info
-   - `NODE_VERSION`: `22`
-   - `ANTHROPIC_MODEL` (optional, defaults to `claude-sonnet-4-20250514`)
-6. Name the service `ravendr-workflows` (this must match the web service's `WORKFLOW_SLUG`)
-7. Click **Create Workflow**
-
-## Environment Variables
-
-### Web service (`ravendr-web`)
-
-| Variable | Required | Default | Description |
+| Variable | Where | Default | Description |
 |---|---|---|---|
-| `ASSEMBLYAI_API_KEY` | Yes | | AssemblyAI API key for voice agent |
-| `RENDER_API_KEY` | Yes | | Render API key for triggering workflows |
-| `DATABASE_URL` | Yes | | PostgreSQL connection string (auto-set by Blueprint) |
-| `WORKFLOW_SLUG` | No | `ravendr-workflows` | Slug of the workflow service |
-| `PORT` | No | `3000` | Server port |
+| `ASSEMBLYAI_API_KEY` | Web service | (required) | Voice agent |
+| `RENDER_API_KEY` | Web service | (required) | Workflow triggers |
+| `DATABASE_URL` | Both | (required) | PostgreSQL connection string |
+| `WORKFLOW_SLUG` | Web service | `ravendr-workflows` | Must match workflow service name |
+| `ANTHROPIC_API_KEY` | Workflow | (required) | Claude for AI agents |
+| `YOU_API_KEY` | Workflow | (required) | Web research |
+| `ANTHROPIC_MODEL` | Workflow | `claude-sonnet-4-20250514` | Claude model ID |
 
-### Workflow service (`ravendr-workflows`)
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | | Anthropic API key for Claude |
-| `YOU_API_KEY` | Yes | | You.com API key for web research |
-| `DATABASE_URL` | Yes | | PostgreSQL connection string |
-| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-20250514` | Claude model ID |
-| `NODE_VERSION` | No | `22` | Node.js version |
-
-## Project Structure
+## Project structure
 
 ```
 src/
-├── server.ts              # Hono web server (HTTP + WebSocket)
-├── voice/
-│   ├── config.ts          # AssemblyAI session config and tool definitions
-│   └── proxy.ts           # WebSocket proxy: browser ↔ AssemblyAI ↔ Render Workflows
-├── agents/
-│   ├── index.ts           # Supervisor agent + sub-agent composition
-│   ├── fact-checker.ts    # Scores claim confidence against evidence
-│   ├── synthesizer.ts     # Voice-friendly summaries
-│   └── connector.ts       # Cross-topic relationship detection
-├── tools/
-│   ├── learn.ts           # learn_topic → Ingest workflow
-│   ├── recall.ts          # recall_topic → Recall workflow
-│   ├── report.ts          # generate_report → Report workflow
-│   └── status.ts          # check_status → poll Render API
-├── workflows/
-│   ├── index.ts           # Workflow entry point (registers all tasks)
-│   ├── ingest.ts          # factCheck + deepDive → connect → store
-│   ├── recall.ts          # search → freshen → synthesize
-│   └── report.ts          # gather → cluster → crossReference (parallel) → generateReport
-├── lib/
-│   ├── db.ts              # PostgreSQL schema + queries (knowledge_entries, workflow_runs)
-│   ├── you-client.ts      # You.com Research API wrapper (lite/deep/exhaustive)
-│   ├── llm.ts             # Anthropic Claude helpers
-│   └── render-utils.ts    # Render signup URLs and branding
-└── static/
-    └── index.html         # Voice UI and workflow activity panel
+  server.ts              Hono web server (HTTP + WebSocket)
+  voice/
+    config.ts            AssemblyAI session config and tool definitions
+    proxy.ts             WebSocket proxy: browser <> AssemblyAI <> Workflows
+  agents/
+    index.ts             Supervisor agent + sub-agent composition
+    fact-checker.ts      Scores claim confidence against evidence
+    synthesizer.ts       Voice-friendly summaries
+    connector.ts         Cross-topic relationship detection
+  tools/
+    learn.ts             learn_topic > Ingest workflow
+    recall.ts            recall_topic > Recall workflow
+    report.ts            generate_report > Report workflow
+  workflows/
+    index.ts             Workflow entry point
+    ingest.ts            factCheck + deepDive > connect > store
+    recall.ts            search > freshen > synthesize
+    report.ts            gather > cluster > crossRef (parallel) > generate
+  lib/
+    db.ts                PostgreSQL schema + queries
+    you-client.ts        You.com Research API wrapper
+  static/index.html      Voice UI and workflow activity panel
+render.yaml              Render Blueprint
 ```
-
-Two database tables: `knowledge_entries` for stored topics (with sources and confidence scoring) and `workflow_runs` for the activity panel.
 
 ## API
 
-### `WebSocket /ws/voice`
+**`WebSocket /ws/voice`**: proxies audio between browser and AssemblyAI. Intercepts tool calls and routes to Render Workflows.
 
-Proxies audio between the browser and AssemblyAI's Voice Agent API. The server intercepts `tool.call` events and routes them to Render Workflows, returning `tool.result` events with the output.
+**`GET /api/workflows/recent`**: 10 most recent workflow runs.
 
-Client sends PCM16 audio:
-```json
-{ "type": "input.audio", "audio": "<base64 PCM16>" }
-```
+**`GET /api/knowledge`**: all knowledge entries.
 
-Server forwards from AssemblyAI:
-```json
-{ "type": "session.ready", "session_id": "..." }
-{ "type": "transcript.user", "text": "Tell me about quantum computing" }
-{ "type": "transcript.agent", "text": "Got it, researching..." }
-{ "type": "reply.audio", "data": "<base64 PCM16>" }
-{ "type": "reply.done" }
-```
+**`GET /api/report/:taskRunId`**: result of a completed report task.
 
-### `GET /api/workflows/recent`
-
-Returns the 10 most recent workflow runs (for the activity panel).
-
-### `GET /api/knowledge`
-
-Returns all knowledge entries in the database.
-
-### `GET /api/report/:taskRunId`
-
-Returns the result of a completed report workflow task.
-
-### `GET /health`
-
-Returns `{ "status": "ok", "service": "ravendr-web" }`.
+**`GET /health`**: `{ "status": "ok" }`.
 
 ## Troubleshooting
 
-**Voice connection fails immediately**: check that `ASSEMBLYAI_API_KEY` is set on the web service. The server logs `ASSEMBLYAI_API_KEY not configured` if missing.
+**Voice connection fails**: check `ASSEMBLYAI_API_KEY` is set on the web service.
 
-**Workflows never complete**: verify the workflow service is running and its name matches `WORKFLOW_SLUG` (default: `ravendr-workflows`). The web service discovers the workflow service by slug.
+**Workflows never complete**: verify the workflow service name matches `WORKFLOW_SLUG` (default: `ravendr-workflows`).
 
-**"recall" returns empty**: the ingest workflow runs in the background. If you ask to recall a topic immediately after mentioning it, the research may still be running. Use `check_status` or wait for the ingest tasks to complete in the Dashboard.
+**"recall" returns empty**: ingest runs in the background. If you recall a topic right after mentioning it, the research may still be running.
 
-**Database connection errors**: the web service expects `DATABASE_URL` to be set automatically by the Blueprint. The workflow service needs it copied manually from the `ravendr-db` database settings. Both services use SSL in production.
+**Database errors**: web service gets `DATABASE_URL` from Blueprint. Workflow service needs it copied manually from the database settings (Internal URL).
