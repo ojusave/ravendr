@@ -62,7 +62,7 @@ Two calling patterns: `startTask` alone for fire-and-forget (ingest runs while y
 
 ### 1. Web service + database (via Blueprint)
 
-Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the web service and a PostgreSQL database. Set `ASSEMBLYAI_API_KEY` and `RENDER_API_KEY` during setup.
+Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the web service and a PostgreSQL database. Set `ASSEMBLYAI_API_KEY` and `RENDER_API_KEY` during setup. The Blueprint sets `WORKFLOW_SLUG` to `ravendr-workflows` by default: name your Workflow service the same string (or change both to match).
 
 ### 2. Workflow service (manual)
 
@@ -85,7 +85,7 @@ Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the w
 | `YOU_API_KEY` | Workflow | (required) | Web research |
 | `ANTHROPIC_MODEL` | Workflow | `claude-sonnet-4-20250514` | Claude model ID |
 
-Optional on the web service only (set in the Dashboard **Environment** tab if you need them; they are intentionally omitted from [`render.yaml`](render.yaml) so Deploy does not prompt for empty fields): `WORKFLOW_SLUG`, `POLL_INTERVAL_MS`, `RENDER_DASHBOARD_TASKS_URL`.
+Optional on the web service only (add in the Dashboard **Environment** tab; omitted from [`render.yaml`](render.yaml) so Deploy stays short): `POLL_INTERVAL_MS`, `RENDER_DASHBOARD_TASKS_URL`.
 
 ## Project structure
 
