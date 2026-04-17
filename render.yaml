@@ -19,21 +19,6 @@ services:
         required: true
         sensitive: true
         sync: false
-      - key: WORKFLOW_SLUG
-        displayName: Workflow Slug
-        description: "The slug of your Ravendr workflow service (defaults to ravendr-workflows)"
-        required: false
-        sync: false
-      - key: POLL_INTERVAL_MS
-        displayName: Workflow poll interval (ms)
-        description: "How often the web service polls task status when streaming SSE (default 4000)"
-        required: false
-        sync: false
-      - key: RENDER_DASHBOARD_TASKS_URL
-        displayName: Render Dashboard URL
-        description: "Shown in the SSE pipeline UI (default https://dashboard.render.com)"
-        required: false
-        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: ravendr-db

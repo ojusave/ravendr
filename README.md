@@ -85,6 +85,8 @@ Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the w
 | `YOU_API_KEY` | Workflow | (required) | Web research |
 | `ANTHROPIC_MODEL` | Workflow | `claude-sonnet-4-20250514` | Claude model ID |
 
+Optional on the web service only (set in the Dashboard **Environment** tab if you need them; they are intentionally omitted from [`render.yaml`](render.yaml) so Deploy does not prompt for empty fields): `WORKFLOW_SLUG`, `POLL_INTERVAL_MS`, `RENDER_DASHBOARD_TASKS_URL`.
+
 ## Project structure
 
 ```
