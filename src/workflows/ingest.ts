@@ -1,6 +1,15 @@
 import { task } from "@renderinc/sdk/workflows";
 import { quickSearch, deepResearch } from "../lib/you-client.js";
-import { mastraFactCheckFromEvidence, mastraSynthesizeKnowledgeEntry } from "../lib/mastra-workflow.js";
+import {
+  mastraFactCheckFromEvidence,
+  mastraSynthesizeKnowledgeEntry,
+  runResearchPhaseWithMastraTools,
+} from "../lib/mastra-workflow.js";
+import {
+  ensureMastraMemory,
+  buildMastraRequestContext,
+  threadKeyIngest,
+} from "../lib/mastra-memory.js";
 import {
   storeKnowledgeEntry,
   searchKnowledge,
@@ -9,7 +18,7 @@ import {
 
 /**
  * Quick fact-check using You.com lite search (~5s).
- * Returns a confidence score and any corrections.
+ * Kept as a standalone task for retries / manual runs.
  */
 export const factCheck = task(
   {
@@ -26,14 +35,17 @@ export const factCheck = task(
     corrections: string;
     sources: { url: string; title: string; snippet: string }[];
   }> {
+    await ensureMastraMemory();
     const result = await quickSearch(
       `Fact check: ${claim} regarding ${topic}`
     );
+    const rc = buildMastraRequestContext(threadKeyIngest(topic, claim));
 
     const analysis = await mastraFactCheckFromEvidence(
       topic,
       claim,
-      result.content
+      result.content,
+      rc
     );
 
     return {
@@ -46,7 +58,6 @@ export const factCheck = task(
 
 /**
  * Deep research on the topic using You.com deep search (~30s).
- * Returns an expanded knowledge summary with citations.
  */
 export const deepDive = task(
   {
@@ -86,13 +97,17 @@ export const connect = task(
     topic: string,
     claim: string,
     factCheckResult: Awaited<ReturnType<typeof factCheck>>,
-    deepDiveResult: Awaited<ReturnType<typeof deepDive>>
+    deepDiveResult: Awaited<ReturnType<typeof deepDive>>,
+    threadId: string
   ): Promise<{
     content: string;
     confidence: number;
     sources: { url: string; title: string; snippet: string }[];
     relatedEntryIds: string[];
   }> {
+    await ensureMastraMemory();
+    const rc = buildMastraRequestContext(threadId);
+
     const existing = await searchKnowledge(topic);
 
     const existingLines =
@@ -111,6 +126,7 @@ export const connect = task(
       },
       deepSummary: deepDiveResult.summary,
       existingLines,
+      rc,
     });
 
     const allowedIds = new Set(existing.map((e) => e.id));
@@ -173,8 +189,7 @@ export const store = task(
 );
 
 /**
- * Top-level ingest orchestrator: runs factCheck + deepDive in parallel,
- * then connect, then store.
+ * Top-level ingest: Mastra tool agent (You.com) + fact-check + connect + store.
  */
 export const ingest = task(
   {
@@ -186,16 +201,36 @@ export const ingest = task(
     topic: string,
     claim: string
   ): Promise<{ entryId: string; confidence: number }> {
-    const [factCheckResult, deepDiveResult] = await Promise.all([
-      factCheck(topic, claim),
-      deepDive(topic),
-    ]);
+    await ensureMastraMemory();
+    const threadId = threadKeyIngest(topic, claim);
+
+    const bundle = await runResearchPhaseWithMastraTools(topic, claim);
+    const rc = buildMastraRequestContext(threadId);
+
+    const fc = await mastraFactCheckFromEvidence(
+      topic,
+      claim,
+      bundle.quickContent,
+      rc
+    );
+
+    const factCheckResult = {
+      confidence: fc.confidence,
+      corrections: fc.corrections,
+      sources: bundle.quickSources.slice(0, 5),
+    };
+
+    const deepDiveResult = {
+      summary: bundle.deepSummary,
+      sources: bundle.deepSources.slice(0, 10),
+    };
 
     const connectResult = await connect(
       topic,
       claim,
       factCheckResult,
-      deepDiveResult
+      deepDiveResult,
+      threadId
     );
     const storeResult = await store(topic, connectResult);
 

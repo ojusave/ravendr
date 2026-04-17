@@ -2,6 +2,7 @@ import { task } from "@renderinc/sdk/workflows";
 import { quickSearch } from "../lib/you-client.js";
 import { ask } from "../lib/llm.js";
 import { mastraVoiceBriefing } from "../lib/mastra-workflow.js";
+import { ensureMastraMemory } from "../lib/mastra-memory.js";
 import { searchKnowledge, markStale } from "../lib/db.js";
 import type { KnowledgeEntry } from "../lib/db.js";
 
@@ -115,6 +116,7 @@ export const synthesize = task(
     entryCount: number;
     staleCount: number;
   }> {
+    await ensureMastraMemory();
     const { entries, staleIds, freshnessNotes } = freshenResult;
 
     if (entries.length === 0) {
@@ -154,6 +156,7 @@ export const recall = task(
     entryCount: number;
     staleCount: number;
   }> {
+    await ensureMastraMemory();
     const entries = await search(query);
     const freshenResult = await freshen(query, entries);
     return synthesize(query, freshenResult);

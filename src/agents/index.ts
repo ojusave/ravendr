@@ -1,7 +1,7 @@
 import { Agent } from "@mastra/core/agent";
-import { factCheckerAgent } from "./fact-checker.js";
-import { synthesizerAgent } from "./synthesizer.js";
-import { connectorAgent } from "./connector.js";
+import { getFactCheckerAgent } from "./fact-checker.js";
+import { getSynthesizerAgent } from "./synthesizer.js";
+import { getConnectorAgent } from "./connector.js";
 
 export const supervisorAgent = new Agent({
   id: "ravendr-supervisor",
@@ -25,10 +25,10 @@ Be conversational and brief in voice responses. Think of yourself as a knowledge
     apiKey: process.env.ANTHROPIC_API_KEY,
   },
   agents: {
-    factChecker: factCheckerAgent,
-    synthesizer: synthesizerAgent,
-    connector: connectorAgent,
+    factChecker: getFactCheckerAgent(),
+    synthesizer: getSynthesizerAgent(),
+    connector: getConnectorAgent(),
   },
 });
 
-export { factCheckerAgent, synthesizerAgent, connectorAgent };
+export { getFactCheckerAgent, getSynthesizerAgent, getConnectorAgent };
