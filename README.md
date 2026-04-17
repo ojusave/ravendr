@@ -62,7 +62,7 @@ Two calling patterns: `startTask` alone for fire-and-forget (ingest runs while y
 
 ### 1. Web service + database (via Blueprint)
 
-Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the web service and a PostgreSQL database. Set `ASSEMBLYAI_API_KEY` and `RENDER_API_KEY` during setup. The Blueprint sets `WORKFLOW_SLUG` to `ravendr-workflows` by default: name your Workflow service the same string (or change both to match).
+Click **Deploy to Render** above. The [`render.yaml`](render.yaml) creates the web service and a PostgreSQL database. During setup, set `ASSEMBLYAI_API_KEY`, `RENDER_API_KEY`, and **`WORKFLOW_SLUG`** (the Workflow service name you will create or already use, for example `ravendr-workflows`). The slug must match the Workflow service name in the dashboard exactly.
 
 ### 2. Workflow service (manual)
 

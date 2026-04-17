@@ -21,8 +21,9 @@ services:
         sync: false
       - key: WORKFLOW_SLUG
         displayName: Workflow slug
-        description: "Must match the Render Workflow service name in the dashboard (this demo uses durable tasks for ingest, recall, and report). Default ravendr-workflows."
-        value: "ravendr-workflows"
+        description: "Exact name of your Render Workflow service in the dashboard (e.g. ravendr-workflows). Task IDs look like <slug>/ingest."
+        required: true
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: ravendr-db
