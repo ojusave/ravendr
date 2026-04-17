@@ -1,6 +1,6 @@
 import { task } from "@renderinc/sdk/workflows";
 import { quickSearch, deepResearch } from "../lib/you-client.js";
-import { ask, parseJson } from "../lib/llm.js";
+import { mastraFactCheckFromEvidence, mastraSynthesizeKnowledgeEntry } from "../lib/mastra-workflow.js";
 import {
   storeKnowledgeEntry,
   searchKnowledge,
@@ -30,23 +30,10 @@ export const factCheck = task(
       `Fact check: ${claim} regarding ${topic}`
     );
 
-    const analysis = await parseJson<{
-      confidence: number;
-      corrections: string;
-    }>(
-      `Based on these search results, evaluate the accuracy of this claim about "${topic}":
-
-Claim: "${claim}"
-
-Search results:
-${result.content}
-
-Return JSON with:
-- confidence: a number from 0 to 1 indicating how accurate the claim is
-- corrections: any corrections or clarifications needed (empty string if accurate)
-
-Return ONLY valid JSON wrapped in \`\`\`json code fences.`,
-      "You are a fact-checking assistant. Be precise and concise."
+    const analysis = await mastraFactCheckFromEvidence(
+      topic,
+      claim,
+      result.content
     );
 
     return {
@@ -97,6 +84,7 @@ export const connect = task(
   },
   async function connect(
     topic: string,
+    claim: string,
     factCheckResult: Awaited<ReturnType<typeof factCheck>>,
     deepDiveResult: Awaited<ReturnType<typeof deepDive>>
   ): Promise<{
@@ -107,30 +95,28 @@ export const connect = task(
   }> {
     const existing = await searchKnowledge(topic);
 
-    const existingContext =
+    const existingLines =
       existing.length > 0
         ? existing
             .map((e) => `- [${e.id}] ${e.topic}: ${e.content.slice(0, 200)}`)
             .join("\n")
-        : "No existing knowledge found.";
+        : "";
 
-    const synthesized = await ask(
-      `Synthesize the following information about "${topic}" into a clear, comprehensive knowledge entry.
+    const synthesized = await mastraSynthesizeKnowledgeEntry({
+      topic,
+      claim,
+      factCheck: {
+        confidence: factCheckResult.confidence,
+        corrections: factCheckResult.corrections,
+      },
+      deepSummary: deepDiveResult.summary,
+      existingLines,
+    });
 
-Fact-check results (confidence: ${factCheckResult.confidence}):
-${factCheckResult.corrections || "No corrections needed."}
-
-Deep research findings:
-${deepDiveResult.summary.slice(0, 3000)}
-
-Existing knowledge in the database:
-${existingContext}
-
-Write a clear, concise summary (2-4 paragraphs) that captures the key knowledge about this topic.`,
-      "You are a knowledge synthesizer. Write clear, factual summaries suitable for a knowledge base."
+    const allowedIds = new Set(existing.map((e) => e.id));
+    const relatedEntryIds = synthesized.relatedEntryIds.filter((id) =>
+      allowedIds.has(id)
     );
-
-    const relatedEntryIds = existing.map((e) => e.id);
 
     const allSources = [
       ...factCheckResult.sources,
@@ -141,8 +127,8 @@ Write a clear, concise summary (2-4 paragraphs) that captures the key knowledge 
     );
 
     return {
-      content: synthesized,
-      confidence: factCheckResult.confidence,
+      content: synthesized.content,
+      confidence: synthesized.confidence,
       sources: uniqueSources,
       relatedEntryIds,
     };
@@ -205,7 +191,12 @@ export const ingest = task(
       deepDive(topic),
     ]);
 
-    const connectResult = await connect(topic, factCheckResult, deepDiveResult);
+    const connectResult = await connect(
+      topic,
+      claim,
+      factCheckResult,
+      deepDiveResult
+    );
     const storeResult = await store(topic, connectResult);
 
     return {

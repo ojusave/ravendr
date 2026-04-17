@@ -1,6 +1,7 @@
 import { task } from "@renderinc/sdk/workflows";
 import { quickSearch } from "../lib/you-client.js";
 import { ask } from "../lib/llm.js";
+import { mastraVoiceBriefing } from "../lib/mastra-workflow.js";
 import { searchKnowledge, markStale } from "../lib/db.js";
 import type { KnowledgeEntry } from "../lib/db.js";
 
@@ -124,33 +125,17 @@ export const synthesize = task(
       };
     }
 
-    const entryTexts = entries
-      .map((e) => {
-        const staleTag = staleIds.includes(e.id) ? " [OUTDATED]" : "";
-        return `Topic: ${e.topic}${staleTag}\n${e.content.slice(0, 500)}`;
-      })
-      .join("\n\n---\n\n");
-
-    const briefing = await ask(
-      `Create a concise voice-friendly briefing (3-5 sentences spoken aloud) summarizing what the user knows about "${query}".
-
-Knowledge entries:
-${entryTexts}
-
-Freshness notes: ${freshnessNotes}
-
-Rules:
-- Speak naturally as if briefing someone verbally
-- Mention if any information may be outdated
-- Highlight the most important points
-- Keep it under 5 sentences`,
-      "You are a voice assistant providing a knowledge briefing. Be clear and conversational."
-    );
+    const out = await mastraVoiceBriefing({
+      query,
+      entries,
+      staleIds,
+      freshnessNotes,
+    });
 
     return {
-      briefing,
-      entryCount: entries.length,
-      staleCount: staleIds.length,
+      briefing: out.briefing,
+      entryCount: out.entryCount,
+      staleCount: out.staleCount,
     };
   }
 );

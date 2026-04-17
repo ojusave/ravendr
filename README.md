@@ -24,6 +24,7 @@ This repo is written as a **Render learning path**: the product is real, but the
 - **Thin web, heavy tasks**: HTTP, WebSockets, and streaming stay in the Hono app. Research, Claude calls, and Postgres writes run in workflow tasks with their own plans, timeouts, and retries.
 - **Two trigger patterns you can copy**: fire-and-forget `startTask` for background ingest (voice can keep going), and `startTask` plus `.get()` when the voice agent must block on an answer (recall). The voice proxy and the optional HTTP pipeline endpoints both use the same slugs.
 - **Blueprint for the boring parts**: [`render.yaml`](render.yaml) stands up the web service and Postgres. You add the workflow service in the dashboard once; after that, most changes are “edit task code, redeploy the workflow,” not replumbing the whole stack.
+- **Four tools, one pipeline**: [AssemblyAI](https://www.assemblyai.com) handles voice tool calls on the web service. [You.com](https://you.com) supplies web evidence inside workflow tasks. [Mastra](https://github.com/mastra-ai/mastra) agents (`factCheckerAgent`, `connectorAgent`, `synthesizerAgent`) run structured judgments and prose in those same tasks via [`src/lib/mastra-workflow.ts`](src/lib/mastra-workflow.ts). [Render Workflows](https://render.com/workflows) executes the durable graph (fact-check, deep dive, connect, store, recall).
 
 ## Why build it this way on Render
 
@@ -33,7 +34,7 @@ The browser talks to [AssemblyAI](https://www.assemblyai.com) over a WebSocket r
 
 Render Workflows move that work to a **separate service** with isolated scaling and runtime settings. The web service only needs an API key and the SDK to **dispatch** work and optionally **wait** for a result.
 
-**Define tasks** in the workflow service (see `src/workflows/`). Each exported `task({ name, plan, timeoutSeconds, retry }, fn)` is one unit you can tune without touching the web tier. Example: `factCheck` in [`src/workflows/ingest.ts`](src/workflows/ingest.ts) uses a short timeout and retries tuned for a quick You.com pass.
+**Define tasks** in the workflow service (see `src/workflows/`). Each exported `task({ name, plan, timeoutSeconds, retry }, fn)` is one unit you can tune without touching the web tier. Ingest combines You.com search with Mastra structured outputs in [`src/lib/mastra-workflow.ts`](src/lib/mastra-workflow.ts), then stores to Postgres. Example: `factCheck` in [`src/workflows/ingest.ts`](src/workflows/ingest.ts) calls You.com `quickSearch` and passes evidence into the Mastra fact-checker agent.
 
 **Trigger tasks** from the web service with `new Render()` and `render.workflows.startTask(\`${WORKFLOW_SLUG}/ingest\`, [topic, claim])`. The string `${WORKFLOW_SLUG}/taskExportName` is the contract between services: it must match the workflow service name in the Render dashboard and the `name` you pass to `task()`.
 
@@ -112,6 +113,7 @@ src/
   lib/
     db.ts                PostgreSQL schema + queries
     you-client.ts        You.com Research API wrapper
+    mastra-workflow.ts   Mastra agents + You.com evidence inside tasks
   static/index.html      Voice UI and workflow activity panel
 render.yaml              Render Blueprint
 ```
