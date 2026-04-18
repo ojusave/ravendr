@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { serve } from "@hono/node-server";
+import { getRequestListener } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -174,7 +174,7 @@ async function start() {
     console.warn("Database init skipped (will retry on first query):", (err as Error).message);
   }
 
-  const server = createServer(app.fetch as unknown as Parameters<typeof createServer>[0]);
+  const server = createServer(getRequestListener(app.fetch));
 
   const wss = new WebSocketServer({ server, path: "/ws/voice" });
 
