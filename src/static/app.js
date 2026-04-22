@@ -40,6 +40,14 @@ const pipelineDashboard = document.getElementById("pipeline-dashboard");
 const pipelineResult = document.getElementById("pipeline-result");
 const pipelineResultContent = document.getElementById("pipeline-result-content");
 
+// New voice-first UI elements
+const voiceHero = document.getElementById("voice-hero");
+const conversationPanel = document.getElementById("conversation-panel");
+const pipelinePanel = document.getElementById("pipeline-panel");
+const textFallback = document.getElementById("text-fallback");
+const textFallbackToggle = document.getElementById("text-fallback-toggle");
+const textFallbackForm = document.getElementById("text-fallback-form");
+
 // Tech step elements
 const techSteps = {
   workflows: {
@@ -228,9 +236,11 @@ function handleEvent(event) {
     statusDot.className = "dot recording";
     micLabel.textContent = "Listening...";
     micBtn.classList.add("active");
-    welcome.style.display = "none";
-    conversation.classList.add("visible");
-    controls.style.display = "flex";
+    // Show conversation and pipeline panels
+    if (voiceHero) voiceHero.classList.add("speaking");
+    if (conversationPanel) conversationPanel.classList.add("visible");
+    if (pipelinePanel) pipelinePanel.classList.add("visible");
+    if (textFallback) textFallback.style.display = "none";
     startMicrophone();
   } else if (t === "input.speech.started") {
     micLabel.textContent = "Listening...";
@@ -245,8 +255,6 @@ function handleEvent(event) {
       resetTechPipeline();
       startVoicePipelineTimer();
       setTechStep("workflows", "active", "Dispatching task...");
-      // Scroll pipeline into view
-      document.getElementById("pipeline-card")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
     appendPipelineSseEvent(event.sseEvent || "message", event.data || {});
     if (event.data?.taskRunId && event.sseEvent === "started") {
@@ -344,6 +352,19 @@ function disconnect() {
   statusDot.className = "dot";
   micBtn.classList.remove("active");
   micLabel.textContent = "Click to start";
+
+  // Hide panels, show hero
+  if (voiceHero) voiceHero.classList.remove("speaking");
+  if (conversationPanel) conversationPanel.classList.remove("visible");
+  if (pipelinePanel) pipelinePanel.classList.remove("visible");
+  if (textFallback) textFallback.style.display = "";
+
+  // Clear conversation
+  if (conversation) conversation.innerHTML = "";
+
+  // Stop voice pipeline timer
+  stopVoicePipelineTimer();
+  resetTechPipeline();
 
   if (ws) {
     ws.close();
@@ -654,3 +675,21 @@ setInterval(async () => {
     /* ignore poll errors */
   }
 }, 5000);
+
+// Text fallback toggle
+if (textFallbackToggle && textFallbackForm) {
+  textFallbackToggle.addEventListener("click", () => {
+    textFallbackForm.classList.toggle("visible");
+    textFallbackToggle.textContent = textFallbackForm.classList.contains("visible")
+      ? "Hide text input"
+      : "Can't use microphone? Try text input";
+  });
+}
+
+// Show pipeline panel when text fallback is used
+if (btnPipeIngest) {
+  const originalHandler = btnPipeIngest.onclick;
+  btnPipeIngest.addEventListener("click", () => {
+    if (pipelinePanel) pipelinePanel.classList.add("visible");
+  });
+}

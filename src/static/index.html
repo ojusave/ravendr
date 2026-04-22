@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ravendr</title>
+  <title>Ravendr - Voice AI Demo</title>
   <link rel="icon" href="https://render.com/favicon.ico" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,7 +30,7 @@
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      height: 100dvh;
+      min-height: 100dvh;
       display: flex;
       flex-direction: column;
     }
@@ -52,36 +52,26 @@
     }
 
     header .title-group { display: flex; align-items: center; gap: 0.5rem; }
-
     header .dot {
       width: 8px; height: 8px; border-radius: 50%;
       background: var(--text-dim);
       flex-shrink: 0;
       transition: all 0.3s;
     }
-    header .dot.live {
-      background: var(--green);
-      box-shadow: 0 0 8px rgba(34,197,94,0.4);
-    }
-    header .dot.recording {
-      background: var(--red);
-      box-shadow: 0 0 8px rgba(239,68,68,0.4);
-      animation: pulse 1.5s ease-in-out infinite;
-    }
+    header .dot.live { background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.4); }
+    header .dot.recording { background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,0.4); animation: pulse 1.5s ease-in-out infinite; }
 
     header h1 {
       font-size: 0.875rem; font-weight: 600;
       font-family: 'Inter', sans-serif;
       color: #fafafa; letter-spacing: -0.01em;
     }
-
     header .tag {
       font-size: 0.6rem; padding: 0.125rem 0.4rem;
       background: rgba(255,255,255,0.06); color: var(--text-muted);
       font-weight: 500; letter-spacing: 0.02em; text-transform: uppercase;
       border: 1px solid var(--border);
     }
-
     header .actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
 
     .header-btn {
@@ -98,81 +88,145 @@
 
     #main {
       flex: 1;
-      overflow-y: auto;
       display: flex;
       flex-direction: column;
+      overflow-y: auto;
     }
 
-    .welcome {
-      text-align: center;
-      color: var(--text-dim);
-      margin: auto;
-      padding: 2rem;
-      max-width: 560px;
-    }
-    .welcome h2 { font-size: 1.25rem; color: var(--text-muted); margin-bottom: 0.5rem; }
-    .welcome p { font-size: 0.8rem; line-height: 1.65; }
-
-    .mic-area {
+    /* Voice Hero Section */
+    .voice-hero {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 1rem;
-      margin-top: 1.5rem;
+      justify-content: center;
+      padding: 3rem 1.5rem 2rem;
+      text-align: center;
     }
+    .voice-hero.speaking { padding: 1.5rem; }
+
+    .voice-hero h2 {
+      font-size: 1.5rem;
+      color: var(--text);
+      margin-bottom: 0.5rem;
+    }
+    .voice-hero .subtitle {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      max-width: 400px;
+      line-height: 1.6;
+      margin-bottom: 2rem;
+    }
+    .voice-hero.speaking .subtitle { display: none; }
 
     .mic-btn {
-      width: 80px; height: 80px;
+      width: 120px; height: 120px;
       border-radius: 50%;
-      border: 2px solid var(--border);
+      border: 3px solid var(--border);
       background: var(--surface);
       color: var(--text-muted);
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.3s;
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
-    .mic-btn:hover { border-color: var(--render-purple); color: var(--text); }
+    .mic-btn:hover { border-color: var(--render-purple); color: var(--text); transform: scale(1.05); }
     .mic-btn.active {
       border-color: var(--red);
-      background: rgba(239,68,68,0.1);
+      background: rgba(239,68,68,0.15);
       color: var(--red);
-      animation: pulse 1.5s ease-in-out infinite;
+      animation: pulse-glow 1.5s ease-in-out infinite;
     }
-    .mic-btn svg { width: 28px; height: 28px; }
+    .mic-btn svg { width: 48px; height: 48px; }
 
     .mic-label {
-      font-size: 0.75rem;
-      color: var(--text-dim);
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      margin-top: 1rem;
       transition: color 0.2s;
     }
+    .mic-btn.active + .mic-label { color: var(--red); }
 
-    .conversation {
-      display: none;
+    .voice-hint {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 1.5rem;
+      max-width: 320px;
+    }
+    .voice-hint code {
+      background: rgba(255,255,255,0.06);
+      padding: 0.15rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.7rem;
+    }
+    .voice-hero.speaking .voice-hint { display: none; }
+
+    /* Main Content Layout */
+    .main-content {
+      display: flex;
       flex: 1;
-      overflow-y: auto;
-      padding: 1rem 1.25rem;
+      gap: 1rem;
+      padding: 0 1rem 1rem;
+      max-width: 1100px;
+      margin: 0 auto;
+      width: 100%;
     }
 
-    .conversation.visible { display: flex; flex-direction: column; gap: 0.75rem; }
+    /* Conversation Panel */
+    .conversation-panel {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .conversation-panel.visible { display: flex; }
+
+    .conversation-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .conversation-header h3 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+    }
+    .conversation-header .ctrl-btn { padding: 0.25rem 0.5rem; font-size: 0.7rem; }
+
+    .conversation {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: 200px;
+      max-height: 400px;
+    }
 
     .msg {
-      max-width: 80%;
-      padding: 0.5rem 0.75rem;
-      font-size: 0.825rem;
+      max-width: 85%;
+      padding: 0.6rem 0.85rem;
+      font-size: 0.85rem;
       line-height: 1.6;
+      border-radius: 12px;
       animation: fadeUp 0.2s ease-out;
     }
     .msg.user {
       align-self: flex-end;
-      background: rgba(108,99,255,0.12);
-      border: 1px solid rgba(108,99,255,0.2);
-      color: var(--text);
+      background: var(--render-purple);
+      color: #fff;
     }
     .msg.agent {
       align-self: flex-start;
-      background: var(--surface);
+      background: var(--bg);
       border: 1px solid var(--border);
       color: var(--text);
     }
@@ -180,105 +234,157 @@
       align-self: center;
       font-size: 0.7rem;
       color: var(--text-dim);
-      border: none;
       padding: 0.25rem 0.5rem;
     }
 
-    .knowledge-panel {
-      display: none;
-      border-top: 1px solid var(--border);
-      padding: 1rem 1.25rem;
-      max-height: 40vh;
-      overflow-y: auto;
-    }
-    .knowledge-panel.visible { display: block; }
-
-    .knowledge-panel h3 {
-      font-size: 0.75rem;
-      font-family: 'Inter', sans-serif;
-      font-weight: 600;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 0.75rem;
-    }
-
-    .workflow-item {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      padding: 0.4rem 0;
-      font-size: 0.75rem;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
-    }
-    .workflow-item:last-child { border-bottom: none; }
-
-    .workflow-dot {
-      width: 6px; height: 6px;
-      border-radius: 50%;
+    /* Pipeline Panel */
+    .pipeline-panel {
+      width: 340px;
       flex-shrink: 0;
-    }
-    .workflow-dot.running { background: var(--amber); animation: pulse 1.5s ease-in-out infinite; }
-    .workflow-dot.completed { background: var(--green); }
-    .workflow-dot.failed { background: var(--red); }
-
-    .workflow-type {
-      font-weight: 500;
-      color: var(--text-muted);
-      text-transform: capitalize;
-    }
-    .workflow-id {
-      color: var(--text-dim);
-      font-family: "SF Mono", "Fira Code", monospace;
-      font-size: 0.65rem;
-    }
-    .workflow-time {
-      margin-left: auto;
-      color: var(--text-dim);
-      font-size: 0.65rem;
-    }
-
-    .report-card {
-      display: none;
-      margin: 1rem 1.25rem;
       background: var(--surface);
       border: 1px solid var(--border);
-      padding: 1.5rem;
-      animation: fadeUp 0.3s ease-out;
+      border-radius: 8px;
+      display: none;
+      flex-direction: column;
     }
-    .report-card.visible { display: block; }
+    .pipeline-panel.visible { display: flex; }
 
-    .report-card h2 { font-size: 1.2rem; color: #fafafa; margin-bottom: 0.5rem; }
-    .report-card .summary { font-size: 0.85rem; color: var(--text-muted); line-height: 1.7; margin-bottom: 1rem; }
-    .report-card .section { margin-bottom: 0.75rem; }
-    .report-card .section h4 {
-      font-size: 0.8rem; font-weight: 600; color: var(--text);
-      font-family: 'Inter', sans-serif; margin-bottom: 0.25rem;
+    .pipeline-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-    .report-card .section p { font-size: 0.8rem; color: var(--text-muted); line-height: 1.6; }
-    .report-card .gaps {
-      margin-top: 1rem; padding-top: 0.75rem;
-      border-top: 1px solid var(--border);
+    .pipeline-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
     }
-    .report-card .gaps h4 { color: var(--amber); }
-    .report-card .gaps li {
-      font-size: 0.8rem; color: var(--text-muted);
-      margin: 0.25rem 0; padding-left: 0.5rem;
+    .pipeline-timer {
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+      color: var(--render-purple);
+      font-weight: 600;
     }
 
-    .controls {
-      padding: 0.75rem 1.25rem;
-      border-top: 1px solid var(--border);
+    .tech-pipeline {
+      padding: 0.75rem;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .tech-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.6rem;
+      padding: 0.5rem 0.4rem;
+      border-left: 3px solid var(--border);
+      margin-left: 0.4rem;
+    }
+    .tech-step.waiting { border-left-color: var(--text-dim); opacity: 0.5; }
+    .tech-step.active { border-left-color: var(--amber); opacity: 1; }
+    .tech-step.active .tech-icon { background: rgba(245,158,11,0.15); border-color: var(--amber); animation: pulse 1.5s ease-in-out infinite; }
+    .tech-step.done { border-left-color: var(--green); opacity: 1; }
+    .tech-step.done .tech-icon { background: rgba(34,197,94,0.15); border-color: var(--green); color: var(--green); }
+    .tech-step.error { border-left-color: var(--red); opacity: 1; }
+    .tech-step.error .tech-icon { background: rgba(239,68,68,0.15); border-color: var(--red); color: var(--red); }
+
+    .tech-icon {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.75rem;
-      background: var(--bg);
+      flex-shrink: 0;
+      font-size: 0.6rem;
+      font-weight: 700;
+      color: var(--text-muted);
     }
 
+    .tech-content { flex: 1; min-width: 0; }
+    .tech-name { font-size: 0.75rem; font-weight: 600; color: var(--text); }
+    .tech-status { font-size: 0.65rem; color: var(--text-muted); margin-top: 0.1rem; }
+    .tech-detail { font-size: 0.6rem; color: var(--text-dim); margin-top: 0.15rem; font-family: monospace; }
+    .tech-time { font-size: 0.65rem; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+    .tech-step.done .tech-time { color: var(--green); }
+    .tech-step.active .tech-time { color: var(--amber); }
+
+    .pipeline-result {
+      display: none;
+      margin: 0.75rem;
+      padding: 0.6rem;
+      background: rgba(34,197,94,0.08);
+      border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 6px;
+    }
+    .pipeline-result.visible { display: block; }
+    .pipeline-result h4 { font-size: 0.7rem; font-weight: 600; color: var(--green); margin-bottom: 0.35rem; }
+    .pipeline-result pre { font-size: 0.65rem; color: var(--text-muted); white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow-y: auto; }
+
+    .pipeline-footer {
+      padding: 0.6rem 0.75rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+    }
+    .dashboard-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--render-purple);
+      padding: 0.25rem 0.4rem;
+      border: 1px solid rgba(108,99,255,0.25);
+      background: rgba(108,99,255,0.06);
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    .dashboard-link:hover { background: rgba(108,99,255,0.12); text-decoration: none; }
+    .dashboard-link svg { width: 10px; height: 10px; }
+
+    /* Text fallback */
+    .text-fallback {
+      padding: 1rem;
+      text-align: center;
+    }
+    .text-fallback-toggle {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0.25rem 0.5rem;
+    }
+    .text-fallback-toggle:hover { color: var(--text-muted); }
+    .text-fallback-form {
+      display: none;
+      margin-top: 0.75rem;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .text-fallback-form.visible { display: block; }
+    .text-fallback-form input {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.8rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+    }
+    .text-fallback-form input:focus { outline: none; border-color: var(--render-purple); }
+
     .ctrl-btn {
-      padding: 0.4rem 0.75rem;
-      font-size: 0.75rem;
+      padding: 0.35rem 0.6rem;
+      font-size: 0.7rem;
       font-weight: 500;
       font-family: 'Inter', sans-serif;
       border: 1px solid var(--border);
@@ -288,10 +394,12 @@
       transition: all 0.15s;
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
+      gap: 0.25rem;
+      border-radius: 4px;
     }
     .ctrl-btn:hover { background: rgba(255,255,255,0.04); color: var(--text); }
-    .ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .ctrl-btn.primary { background: var(--render-purple); border-color: var(--render-purple); color: #fff; }
+    .ctrl-btn.primary:hover { background: var(--render-purple-hover); }
     .ctrl-btn.danger { border-color: rgba(239,68,68,0.3); color: var(--red); }
     .ctrl-btn.danger:hover { background: rgba(239,68,68,0.08); }
 
@@ -300,13 +408,11 @@
       border-top: 1px solid var(--border);
       display: flex; align-items: center; justify-content: center; gap: 0.375rem;
       font-size: 0.675rem; color: var(--text-dim); background: var(--bg);
+      flex-wrap: wrap;
     }
     footer a { color: var(--text-muted); }
     footer a:hover { color: var(--text); }
     footer .sep { color: #27272a; }
-
-    #main::-webkit-scrollbar { width: 4px; }
-    #main::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); }
 
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(4px); }
@@ -316,241 +422,21 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
-
-    .pipeline-card {
-      margin: 1.25rem auto 0;
-      max-width: 640px;
-      padding: 1.25rem 1.5rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      text-align: left;
-    }
-    .pipeline-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 1rem;
-      padding-bottom: 0.75rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .pipeline-title {
-      font-size: 1rem;
-      font-weight: 600;
-      font-family: 'Inter', sans-serif;
-      color: var(--text);
-    }
-    .pipeline-timer {
-      font-size: 0.85rem;
-      font-variant-numeric: tabular-nums;
-      color: var(--render-purple);
-      font-weight: 600;
-    }
-    .pipeline-hint {
-      font-size: 0.75rem;
-      color: var(--text-dim);
-      line-height: 1.5;
-      margin-bottom: 1rem;
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+      50% { box-shadow: 0 0 20px 10px rgba(239,68,68,0.2); }
     }
 
-    /* Tech Stack Visualization */
-    .tech-pipeline {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      margin-bottom: 1rem;
-      background: var(--bg);
-      border-radius: 6px;
-      padding: 0.5rem;
-    }
-    .tech-step {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      padding: 0.6rem 0.5rem;
-      border-left: 3px solid var(--border);
-      margin-left: 0.5rem;
-      position: relative;
-    }
-    .tech-step:first-child { padding-top: 0.5rem; }
-    .tech-step:last-child { padding-bottom: 0.5rem; }
-    .tech-step.waiting { border-left-color: var(--text-dim); opacity: 0.5; }
-    .tech-step.active { border-left-color: var(--amber); }
-    .tech-step.active .tech-icon { background: rgba(245,158,11,0.15); border-color: var(--amber); }
-    .tech-step.done { border-left-color: var(--green); }
-    .tech-step.done .tech-icon { background: rgba(34,197,94,0.15); border-color: var(--green); }
-    .tech-step.error { border-left-color: var(--red); }
-    .tech-step.error .tech-icon { background: rgba(239,68,68,0.15); border-color: var(--red); }
+    /* Hidden elements for JS compatibility */
+    .pipeline-feed, .pipeline-error, #btn-pipe-cancel { display: none; }
+    #pipe-topic, #pipe-claim { display: none; }
 
-    .tech-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: var(--text-muted);
-      position: relative;
-    }
-    .tech-step.active .tech-icon { animation: pulse 1.5s ease-in-out infinite; }
-    .tech-step.done .tech-icon { color: var(--green); }
-    .tech-step.error .tech-icon { color: var(--red); }
-
-    .tech-content { flex: 1; min-width: 0; }
-    .tech-name {
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 0.15rem;
-    }
-    .tech-status {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-    }
-    .tech-detail {
-      font-size: 0.65rem;
-      color: var(--text-dim);
-      margin-top: 0.25rem;
-      font-family: "SF Mono", "Fira Code", monospace;
-    }
-    .tech-time {
-      font-size: 0.7rem;
-      color: var(--text-dim);
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-      min-width: 50px;
-    }
-    .tech-step.done .tech-time { color: var(--green); }
-    .tech-step.active .tech-time { color: var(--amber); }
-
-    /* Input Section */
-    .pipeline-input {
-      background: var(--bg);
-      border-radius: 6px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .pipeline-row {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      margin-bottom: 0.75rem;
-    }
-    .pipeline-row:last-child { margin-bottom: 0; }
-    .pipeline-row label {
-      font-size: 0.7rem;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    .pipeline-row input {
-      padding: 0.5rem 0.75rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      color: var(--text);
-      font-size: 0.85rem;
-      font-family: 'Inter', sans-serif;
-      border-radius: 4px;
-    }
-    .pipeline-row input:focus { outline: none; border-color: var(--render-purple); }
-    .pipeline-actions {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      margin-top: 0.5rem;
-    }
-    .ctrl-btn.primary {
-      background: var(--render-purple);
-      border-color: var(--render-purple);
-      color: #fff;
-      padding: 0.5rem 1rem;
-      font-size: 0.8rem;
-    }
-    .ctrl-btn.primary:hover { background: var(--render-purple-hover); color: #fff; }
-
-    .pipeline-meta {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-      padding-top: 0.75rem;
-      border-top: 1px solid var(--border);
-    }
-    .pipeline-meta-right {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-    #btn-pipe-cancel { display: none; }
-    #btn-pipe-cancel.visible { display: inline-flex; }
-    .dashboard-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.7rem;
-      font-weight: 500;
-      color: var(--render-purple);
-      padding: 0.3rem 0.5rem;
-      border: 1px solid rgba(108,99,255,0.25);
-      background: rgba(108,99,255,0.06);
-      text-decoration: none;
-    }
-    .dashboard-link:hover { background: rgba(108,99,255,0.12); text-decoration: none; }
-
-    .pipeline-result {
-      display: none;
-      margin-top: 1rem;
-      padding: 0.75rem;
-      background: rgba(34,197,94,0.08);
-      border: 1px solid rgba(34,197,94,0.25);
-      border-radius: 6px;
-    }
-    .pipeline-result.visible { display: block; }
-    .pipeline-result h4 {
-      font-size: 0.75rem;
-      font-weight: 600;
-      color: var(--green);
-      margin-bottom: 0.5rem;
-    }
-    .pipeline-result pre {
-      font-size: 0.7rem;
-      color: var(--text-muted);
-      white-space: pre-wrap;
-      word-break: break-all;
-      max-height: 200px;
-      overflow-y: auto;
-    }
-
-    .pipeline-error {
-      display: none;
-      margin-top: 0.75rem;
-      padding: 0.5rem 0.75rem;
-      background: rgba(239,68,68,0.08);
-      border: 1px solid rgba(239,68,68,0.25);
-      color: #fca5a5;
-      font-size: 0.75rem;
-      border-radius: 6px;
-    }
-    .pipeline-error.visible { display: block; }
-
-    /* Hidden legacy feed for compatibility */
-    .pipeline-feed { display: none; }
-
-    @media (max-width: 600px) {
-      header { flex-wrap: wrap; gap: 0.5rem; }
-      header .actions { gap: 0.375rem; }
-      .header-btn { font-size: 0.65rem; padding: 0.25rem 0.5rem; }
-      .header-btn .btn-label { display: none; }
-      .msg { max-width: 90%; }
-      .pipeline-card { margin-left: 1rem; margin-right: 1rem; }
+    @media (max-width: 768px) {
+      .main-content { flex-direction: column; }
+      .pipeline-panel { width: 100%; }
+      .voice-hero { padding: 2rem 1rem 1.5rem; }
+      .mic-btn { width: 100px; height: 100px; }
+      .mic-btn svg { width: 40px; height: 40px; }
     }
   </style>
 </head>
@@ -559,7 +445,7 @@
     <div class="title-group">
       <div class="dot" id="status-dot"></div>
       <h1>Ravendr</h1>
-      <span class="tag">Mastra + You.com + AssemblyAI + Render Workflows</span>
+      <span class="tag">Speech-to-Speech AI</span>
     </div>
     <div class="actions">
       <a id="github-btn" href="" target="_blank" rel="noopener" class="header-btn">
@@ -567,159 +453,148 @@
         <span class="btn-label">GitHub</span>
       </a>
       <a id="deploy-btn" href="" target="_blank" rel="noopener" class="header-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/><polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="7.5 4.21 12 6.81 16.5 4.21"/><polyline points="7.5 19.79 7.5 14.6 3 12"/><polyline points="21 12 16.5 14.6 16.5 19.79"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
         <span class="btn-label">Deploy</span>
       </a>
       <a id="signup-btn" href="" target="_blank" rel="noopener" class="header-btn primary">
-        <span class="btn-label">Sign up on Render</span>
+        Sign up on Render
       </a>
     </div>
   </header>
 
   <div id="main">
-    <!-- Demo Pipeline - Shows all 4 technologies working together -->
-    <div class="pipeline-card" id="pipeline-card">
-      <div class="pipeline-header">
-        <h3 class="pipeline-title">Research Pipeline Demo</h3>
-        <span class="pipeline-timer" id="pipeline-timer">Ready</span>
-      </div>
-
-      <p class="pipeline-hint">
-        Enter a topic to research. Watch all four technologies work together: 
-        <strong>Render Workflows</strong> orchestrates durable tasks, 
-        <strong>You.com</strong> searches the web, 
-        <strong>Mastra</strong> synthesizes with AI, and 
-        <strong>AssemblyAI</strong> enables voice (optional).
+    <!-- Voice Hero - Main Interface -->
+    <div class="voice-hero" id="voice-hero">
+      <h2>Talk to Ravendr</h2>
+      <p class="subtitle">
+        A voice AI that researches topics in real-time using 
+        <strong>Render Workflows</strong>, <strong>You.com</strong>, and <strong>Mastra</strong>.
       </p>
+      
+      <button class="mic-btn" id="mic-btn" title="Start conversation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </button>
+      <span class="mic-label" id="mic-label">Click to start</span>
+      
+      <p class="voice-hint">
+        Try saying: <code>Learn about Render</code> or <code>What do you know about AI?</code>
+      </p>
+    </div>
 
-      <!-- Tech Pipeline Visualization -->
-      <div class="tech-pipeline" id="tech-pipeline">
-        <div class="tech-step waiting" id="step-workflows" data-step="workflows">
-          <div class="tech-icon">RW</div>
-          <div class="tech-content">
-            <div class="tech-name">Render Workflows</div>
-            <div class="tech-status" id="status-workflows">Waiting to dispatch task...</div>
-            <div class="tech-detail" id="detail-workflows"></div>
-          </div>
-          <div class="tech-time" id="time-workflows">—</div>
+    <!-- Main Content: Conversation + Pipeline -->
+    <div class="main-content">
+      <!-- Conversation Panel -->
+      <div class="conversation-panel" id="conversation-panel">
+        <div class="conversation-header">
+          <h3>Conversation</h3>
+          <button class="ctrl-btn danger" id="btn-disconnect">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            End
+          </button>
         </div>
-
-        <div class="tech-step waiting" id="step-youcom" data-step="youcom">
-          <div class="tech-icon">Y</div>
-          <div class="tech-content">
-            <div class="tech-name">You.com Research</div>
-            <div class="tech-status" id="status-youcom">Waiting for task...</div>
-            <div class="tech-detail" id="detail-youcom"></div>
-          </div>
-          <div class="tech-time" id="time-youcom">—</div>
-        </div>
-
-        <div class="tech-step waiting" id="step-mastra" data-step="mastra">
-          <div class="tech-icon">M</div>
-          <div class="tech-content">
-            <div class="tech-name">Mastra AI Agent</div>
-            <div class="tech-status" id="status-mastra">Waiting for research...</div>
-            <div class="tech-detail" id="detail-mastra"></div>
-          </div>
-          <div class="tech-time" id="time-mastra">—</div>
-        </div>
-
-        <div class="tech-step waiting" id="step-complete" data-step="complete">
-          <div class="tech-icon">✓</div>
-          <div class="tech-content">
-            <div class="tech-name">Complete</div>
-            <div class="tech-status" id="status-complete">Waiting for synthesis...</div>
-            <div class="tech-detail" id="detail-complete"></div>
-          </div>
-          <div class="tech-time" id="time-complete">—</div>
-        </div>
+        <div class="conversation" id="conversation"></div>
       </div>
 
-      <!-- Input Section -->
-      <div class="pipeline-input">
-        <div class="pipeline-row">
-          <label>Research Topic</label>
-          <input type="text" id="pipe-topic" placeholder="e.g. Render cloud platform, quantum computing, SpaceX" autocomplete="off" />
+      <!-- Pipeline Panel -->
+      <div class="pipeline-panel" id="pipeline-panel">
+        <div class="pipeline-header">
+          <span class="pipeline-title">Pipeline</span>
+          <span class="pipeline-timer" id="pipeline-timer">Ready</span>
         </div>
-        <div class="pipeline-row">
-          <label>Claim to verify (optional)</label>
-          <input type="text" id="pipe-claim" placeholder="e.g. Render makes deployment easy" autocomplete="off" />
+        
+        <div class="tech-pipeline" id="tech-pipeline">
+          <div class="tech-step waiting" id="step-workflows" data-step="workflows">
+            <div class="tech-icon">RW</div>
+            <div class="tech-content">
+              <div class="tech-name">Render Workflows</div>
+              <div class="tech-status" id="status-workflows">Waiting...</div>
+              <div class="tech-detail" id="detail-workflows"></div>
+            </div>
+            <div class="tech-time" id="time-workflows">—</div>
+          </div>
+
+          <div class="tech-step waiting" id="step-youcom" data-step="youcom">
+            <div class="tech-icon">Y</div>
+            <div class="tech-content">
+              <div class="tech-name">You.com</div>
+              <div class="tech-status" id="status-youcom">Waiting...</div>
+              <div class="tech-detail" id="detail-youcom"></div>
+            </div>
+            <div class="tech-time" id="time-youcom">—</div>
+          </div>
+
+          <div class="tech-step waiting" id="step-mastra" data-step="mastra">
+            <div class="tech-icon">M</div>
+            <div class="tech-content">
+              <div class="tech-name">Mastra</div>
+              <div class="tech-status" id="status-mastra">Waiting...</div>
+              <div class="tech-detail" id="detail-mastra"></div>
+            </div>
+            <div class="tech-time" id="time-mastra">—</div>
+          </div>
+
+          <div class="tech-step waiting" id="step-complete" data-step="complete">
+            <div class="tech-icon">✓</div>
+            <div class="tech-content">
+              <div class="tech-name">Complete</div>
+              <div class="tech-status" id="status-complete">Waiting...</div>
+              <div class="tech-detail" id="detail-complete"></div>
+            </div>
+            <div class="tech-time" id="time-complete">—</div>
+          </div>
         </div>
-        <div class="pipeline-actions">
-          <button type="button" class="ctrl-btn primary" id="btn-pipe-ingest">🔍 Research This</button>
-          <button type="button" class="ctrl-btn" id="btn-pipe-recall">📚 Recall Knowledge</button>
-          <button type="button" class="ctrl-btn" id="btn-pipe-report">📊 Full Report</button>
+
+        <div class="pipeline-result" id="pipeline-result">
+          <h4>Result</h4>
+          <pre id="pipeline-result-content"></pre>
         </div>
-      </div>
 
-      <!-- Result Display -->
-      <div class="pipeline-result" id="pipeline-result">
-        <h4>Research Complete</h4>
-        <pre id="pipeline-result-content"></pre>
-      </div>
-
-      <div class="pipeline-error" id="pipeline-error"></div>
-
-      <!-- Footer with dashboard link -->
-      <div class="pipeline-meta">
-        <button type="button" class="ctrl-btn danger" id="btn-pipe-cancel" title="Stop">Cancel</button>
-        <div class="pipeline-meta-right">
+        <div class="pipeline-footer">
           <a class="dashboard-link" href="https://dashboard.render.com" target="_blank" rel="noopener" id="pipeline-dashboard">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            View in Render Dashboard
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Render Dashboard
           </a>
         </div>
       </div>
-
-      <!-- Hidden legacy feed for compatibility -->
-      <div class="pipeline-feed" id="pipeline-feed"></div>
     </div>
 
-    <div class="welcome" id="welcome">
-      <h2>Voice Interface (Optional)</h2>
-      <p>
-        Use <strong>AssemblyAI</strong> voice to trigger the same pipeline. Say things like "Learn about Render" or "What do you know about cloud computing?"
-      </p>
-      <div class="mic-area">
-        <button class="mic-btn" id="mic-btn" title="Start conversation">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-            <line x1="12" y1="19" x2="12" y2="23"/>
-            <line x1="8" y1="23" x2="16" y2="23"/>
-          </svg>
-        </button>
-        <span class="mic-label" id="mic-label">Click to start</span>
+    <!-- Text Fallback (hidden toggle) -->
+    <div class="text-fallback" id="text-fallback">
+      <button class="text-fallback-toggle" id="text-fallback-toggle">Can't use microphone? Try text input</button>
+      <div class="text-fallback-form" id="text-fallback-form">
+        <input type="text" id="pipe-topic" placeholder="Enter a topic to research..." autocomplete="off" />
+        <input type="text" id="pipe-claim" placeholder="Claim to verify (optional)" autocomplete="off" style="display:none;" />
+        <button type="button" class="ctrl-btn primary" id="btn-pipe-ingest">Research</button>
       </div>
     </div>
-
-    <div class="conversation" id="conversation"></div>
-    <div class="report-card" id="report-card"></div>
   </div>
 
-  <div class="knowledge-panel" id="knowledge-panel">
-    <h3>Workflow Activity</h3>
-    <div id="workflow-list"></div>
-  </div>
-
-  <div class="controls" id="controls" style="display:none;">
-    <button class="ctrl-btn" id="btn-knowledge" title="View knowledge activity">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Activity
-    </button>
-    <button class="ctrl-btn danger" id="btn-disconnect" title="End conversation">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      Disconnect
-    </button>
-  </div>
+  <!-- Hidden elements for JS compatibility -->
+  <div class="pipeline-feed" id="pipeline-feed"></div>
+  <div class="pipeline-error" id="pipeline-error"></div>
+  <button id="btn-pipe-cancel" style="display:none;"></button>
+  <button id="btn-pipe-recall" style="display:none;"></button>
+  <button id="btn-pipe-report" style="display:none;"></button>
+  <div id="welcome" style="display:none;"></div>
+  <div id="controls" style="display:none;"></div>
+  <div id="knowledge-panel" style="display:none;"><div id="workflow-list"></div></div>
+  <div id="report-card" style="display:none;"></div>
+  <button id="btn-knowledge" style="display:none;"></button>
 
   <footer>
-    <span>
-      <a href="https://render.com/workflows" target="_blank" rel="noopener">Render Workflows</a> +
-      <a href="https://you.com/api" target="_blank" rel="noopener">You.com</a> +
-      <a href="https://mastra.ai" target="_blank" rel="noopener">Mastra</a> +
-      <a href="https://www.assemblyai.com" target="_blank" rel="noopener">AssemblyAI</a>
-    </span>
+    <span>Powered by</span>
+    <a href="https://www.assemblyai.com" target="_blank" rel="noopener">AssemblyAI</a>
+    <span class="sep">+</span>
+    <a href="https://render.com/workflows" target="_blank" rel="noopener">Render Workflows</a>
+    <span class="sep">+</span>
+    <a href="https://you.com/api" target="_blank" rel="noopener">You.com</a>
+    <span class="sep">+</span>
+    <a href="https://mastra.ai" target="_blank" rel="noopener">Mastra</a>
     <span class="sep">&middot;</span>
     <a id="footer-github" href="" target="_blank" rel="noopener">GitHub</a>
     <span class="sep">&middot;</span>
