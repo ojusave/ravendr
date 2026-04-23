@@ -44,6 +44,7 @@ export type VoiceEvent =
   | { kind: "session.ready" }
   | { kind: "user.transcript.partial"; text: string }
   | { kind: "user.transcript.final"; text: string }
+  | { kind: "agent.transcript"; text: string; interrupted: boolean }
   | { kind: "agent.reply.started" }
   | { kind: "agent.reply.done"; status: "ok" | "interrupted" }
   | { kind: "error"; message: string };

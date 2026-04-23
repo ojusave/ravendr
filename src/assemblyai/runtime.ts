@@ -14,15 +14,20 @@ export interface AssemblyAIConfig {
 }
 
 /**
- * Adapter over AssemblyAI's Voice Agent API (WSS).
+ * Adapter over AssemblyAI Voice Agent API.
  *
- * Protocol reference events (subject to API verification during integration):
+ * Protocol ref: https://www.assemblyai.com/docs/voice-agents/voice-agent-api
  *   client → server : session.update, input.audio, tool.result
- *   server → client : session.ready, transcript.user, tool.call, reply.audio, reply.done
+ *   server → client : session.ready, transcript.user.delta, transcript.user,
+ *                     transcript.agent, reply.started, reply.audio, reply.done,
+ *                     tool.call, session.error, error
  *
- * We register a single tool, `research(topic)`, so every substantive user
- * utterance is routed through our own app logic (the narrator + workflow
- * dispatcher) rather than AssemblyAI's built-in LLM.
+ * We register a single tool `research(topic)`. The agent's system prompt
+ * tells it to call `research` with the user's exact spoken topic, and speak
+ * back the tool's returned string verbatim.
+ *
+ * No server-initiated speech exists in AssemblyAI's API — narrator phase
+ * lines are spoken by the browser via speechSynthesis instead.
  */
 export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime {
   return {
@@ -35,9 +40,7 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
       const audioListeners: ((chunk: Uint8Array) => void)[] = [];
       const pendingToolCalls = new Map<string, AbortController>();
 
-      // Handshake: resolve when the WS is open and session.update is sent.
-      // Proceed after a short timeout even if AssemblyAI's "session.ready"
-      // (or whatever equivalent) hasn't arrived — browser needs to progress.
+      // Resolve when session.update is sent. 5s hard ceiling.
       const HANDSHAKE_TIMEOUT_MS = 5_000;
       const ready = new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -55,14 +58,17 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
               type: "session.update",
               session: {
                 system_prompt:
-                  "You are a voice host. When the user speaks, call the tool `research` with their exact spoken text as the `topic` argument, and speak its return value verbatim. Never generate content on your own.",
+                  "You are Ravendr's voice host. For ANY topic the user says — even a greeting or small talk — call the tool `research` with their exact spoken text as the `topic` argument, and speak its returned string verbatim. Never generate content on your own. Never skip the tool call.",
                 output: { voice: config.voice },
+                greeting:
+                  "Hey — tell me what you want me to research. Say anything, even a greeting, and I'll run it through the stack.",
                 tools: [
                   {
-                    id: "research",
+                    type: "function",
+                    name: "research",
                     description:
                       "Research a topic. Pass the user's spoken request as `topic`.",
-                    input_schema: {
+                    parameters: {
                       type: "object",
                       properties: {
                         topic: { type: "string" },
@@ -71,6 +77,14 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
                     },
                   },
                 ],
+                turn_detection: {
+                  speech_detection_threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  min_end_of_turn_silence_ms: 100,
+                  max_turn_silence_ms: 1000,
+                  interrupt_response: true,
+                  min_interrupt_duration_ms: 600,
+                },
               },
             })
           );
@@ -85,7 +99,10 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
         ws.once("close", (code, reason) => {
           clearTimeout(timer);
           const reasonText = reason?.toString() ?? "";
-          logger.warn({ code, reason: reasonText }, "AssemblyAI WS closed during handshake");
+          logger.warn(
+            { code, reason: reasonText },
+            "AssemblyAI WS closed during handshake"
+          );
           reject(
             new AppError(
               "UPSTREAM_VOICE",
@@ -99,10 +116,13 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
       ws.on("message", async (raw: Buffer) => {
         const event = safeParse(raw);
         if (!event) {
-          logger.warn({ raw: raw.toString("utf8").slice(0, 200) }, "non-JSON upstream message");
+          logger.warn(
+            { raw: raw.toString("utf8").slice(0, 200) },
+            "non-JSON upstream message"
+          );
           return;
         }
-        if (debugMessageCount < 10) {
+        if (debugMessageCount < 15) {
           logger.info(
             { type: event.type, keys: Object.keys(event).slice(0, 8) },
             "AssemblyAI upstream message"
@@ -113,27 +133,59 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
           case "session.ready":
             opts.onEvent?.({ kind: "session.ready" });
             break;
+
+          case "transcript.user.delta":
+            opts.onEvent?.({
+              kind: "user.transcript.partial",
+              text: String(event.text ?? ""),
+            });
+            break;
+
           case "transcript.user":
-            if (event.is_final === false) {
-              opts.onEvent?.({
-                kind: "user.transcript.partial",
-                text: String(event.text ?? ""),
-              });
-            } else {
-              opts.onEvent?.({
-                kind: "user.transcript.final",
-                text: String(event.text ?? ""),
-              });
+            opts.onEvent?.({
+              kind: "user.transcript.final",
+              text: String(event.text ?? ""),
+            });
+            break;
+
+          case "transcript.agent":
+            opts.onEvent?.({
+              kind: "agent.transcript",
+              text: String(event.text ?? ""),
+              interrupted: Boolean(event.interrupted),
+            });
+            break;
+
+          case "reply.started":
+            opts.onEvent?.({ kind: "agent.reply.started" });
+            break;
+
+          case "reply.done":
+            opts.onEvent?.({
+              kind: "agent.reply.done",
+              status: event.status === "interrupted" ? "interrupted" : "ok",
+            });
+            break;
+
+          case "reply.audio": {
+            // The audio payload is `data`, not `audio`.
+            const audio = event.data;
+            if (typeof audio === "string") {
+              const chunk = Buffer.from(audio, "base64");
+              for (const l of audioListeners) l(chunk);
             }
             break;
+          }
+
           case "tool.call": {
-            const id = String(event.tool_call_id ?? event.id ?? "");
-            const name = String(event.tool?.name ?? event.name ?? "");
-            const args = event.tool?.arguments ?? event.arguments ?? {};
+            const id = String(event.call_id ?? "");
+            const name = String(event.name ?? "");
+            const args =
+              (event.args as Record<string, unknown> | undefined) ?? {};
             const controller = new AbortController();
             pendingToolCalls.set(id, controller);
             try {
-              const result =
+              const reply =
                 (await opts.onToolCall?.(name, args)) ??
                 (name === "research" && typeof args.topic === "string"
                   ? await opts.onUserTurn(args.topic)
@@ -141,8 +193,9 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
               ws.send(
                 JSON.stringify({
                   type: "tool.result",
-                  tool_call_id: id,
-                  result,
+                  call_id: id,
+                  // Docs: `result` must be a JSON string.
+                  result: JSON.stringify(reply),
                 })
               );
             } catch (err) {
@@ -150,8 +203,10 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
               ws.send(
                 JSON.stringify({
                   type: "tool.result",
-                  tool_call_id: id,
-                  result: "Sorry — something went wrong handling that.",
+                  call_id: id,
+                  result: JSON.stringify(
+                    "Sorry — something went wrong handling that."
+                  ),
                 })
               );
             } finally {
@@ -159,27 +214,12 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
             }
             break;
           }
-          case "reply.audio": {
-            const audio = event.audio;
-            if (typeof audio === "string") {
-              const chunk = Buffer.from(audio, "base64");
-              for (const l of audioListeners) l(chunk);
-            }
-            break;
-          }
-          case "reply.started":
-            opts.onEvent?.({ kind: "agent.reply.started" });
-            break;
-          case "reply.done":
-            opts.onEvent?.({
-              kind: "agent.reply.done",
-              status: event.status === "interrupted" ? "interrupted" : "ok",
-            });
-            break;
+
+          case "session.error":
           case "error":
             opts.onEvent?.({
               kind: "error",
-              message: String(event.message ?? "unknown voice error"),
+              message: `${event.code ?? ""}: ${event.message ?? "unknown voice error"}`,
             });
             break;
         }
@@ -201,17 +241,10 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
         onAgentAudio(handler) {
           audioListeners.push(handler);
         },
-        async say(text: string) {
-          // Best-effort server-initiated speech. Exact event shape may need
-          // tweaking during integration; fallback is a separate TTS channel
-          // handled by the ws-proxy on top of this session.
-          if (ws.readyState !== WebSocket.OPEN) return;
-          ws.send(
-            JSON.stringify({
-              type: "broadcast.speech",
-              text,
-            })
-          );
+        async say(_text: string) {
+          // AssemblyAI Voice Agent API has no server-initiated speech event.
+          // Narrator phase lines are spoken by the browser via speechSynthesis
+          // — see static/main.js.
         },
         async close() {
           for (const c of pendingToolCalls.values()) c.abort();

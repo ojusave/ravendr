@@ -49,6 +49,11 @@ function log(line, event) {
 }
 
 function handleTranscript(msg) {
+  if (msg.role === "assistant") {
+    // AssemblyAI already TTS'd this via reply.audio; just render the text.
+    chatBubble("assistant", msg.text);
+    return;
+  }
   if (msg.role !== "user") return;
   if (msg.final) {
     if (pendingUserBubble) {
@@ -67,12 +72,36 @@ function handleTranscript(msg) {
   }
 }
 
+// Browser TTS for narrator lines. AssemblyAI's VA has no server-initiated
+// speech API, so narrator phase lines are spoken here instead.
+const NARRATOR_VOICE = (() => {
+  try {
+    const voices = window.speechSynthesis?.getVoices() ?? [];
+    return voices.find((v) => /en[-_]US/i.test(v.lang) && /female|samantha|allison|karen/i.test(v.name))
+        ?? voices.find((v) => /en/i.test(v.lang))
+        ?? null;
+  } catch {
+    return null;
+  }
+})();
+
+function speakNarration(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  if (NARRATOR_VOICE) u.voice = NARRATOR_VOICE;
+  u.rate = 1.05;
+  u.pitch = 1.0;
+  u.volume = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
 function handleEvent(event) {
   ribbon.onEvent(event);
 
-  // Render narrator speech as assistant bubbles in chat.
+  // Render narrator speech as assistant bubbles in chat AND speak it aloud.
   if (event.kind === "narrator.speech") {
     chatBubble("assistant", event.text);
+    speakNarration(event.text);
     return;
   }
 

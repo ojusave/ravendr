@@ -67,6 +67,15 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
             );
           }
         }
+        // Forward agent's actual spoken text (comes alongside reply.audio).
+        if (e.kind === "agent.transcript") {
+          safeSend(browser, {
+            type: "transcript",
+            role: "assistant",
+            text: e.text,
+            final: true,
+          });
+        }
         if (e.kind === "error") {
           logger.warn({ sessionId, message: e.message }, "voice upstream error");
           safeSend(browser, { type: "error", message: e.message });
@@ -88,13 +97,10 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
     });
   });
 
+  // Phase events flow to the browser; narrator lines are spoken there via
+  // speechSynthesis since AssemblyAI's VA has no mid-session "say this" API.
   const unsubscribe = events.subscribe(sessionId, (event: PhaseEvent) => {
     safeSend(browser, { type: "event", event });
-    if (event.kind === "narrator.speech") {
-      session?.say(event.text).catch((err) =>
-        logger.warn({ err }, "narrator say failed")
-      );
-    }
   });
 
   browser.on("message", (raw) => {
