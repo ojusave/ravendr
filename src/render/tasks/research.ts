@@ -64,7 +64,9 @@ export const research = task(
       let result: Awaited<ReturnType<typeof synthesize>>;
 
       // Run the pipeline once; if verify fails, run it one more time with
-      // the verifier's feedback feeding into the planner.
+      // the verifier's feedback feeding into the planner. briefing.ready is
+      // NOT emitted until AFTER this loop settles, so the UI and voice agent
+      // only ever see the final briefing.
       while (true) {
         const plan = await plan_queries(sessionId, topic, feedback || undefined);
 
@@ -91,6 +93,15 @@ export const research = task(
         });
       }
 
+      // Pipeline settled — publish briefing.ready (UI renders, voice reads)
+      // and then workflow.completed.
+      await events.publish({
+        sessionId,
+        at: Date.now(),
+        kind: "briefing.ready",
+        briefingId: result.briefingId,
+        sourceCount: result.sourceCount,
+      });
       await events.publish({
         sessionId,
         at: Date.now(),

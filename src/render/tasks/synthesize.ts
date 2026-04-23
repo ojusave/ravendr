@@ -63,15 +63,10 @@ export const synthesize = task(
 
       await completeBriefing(config.DATABASE_URL, briefingId, content);
       await addSources(config.DATABASE_URL, briefingId, uniqueSources);
-      await setSessionStatus(config.DATABASE_URL, sessionId, "complete");
-
-      await events.publish({
-        sessionId,
-        at: Date.now(),
-        kind: "briefing.ready",
-        briefingId,
-        sourceCount: uniqueSources.length,
-      });
+      // NOTE: briefing.ready is NOT published here. The research root task
+      // publishes it ONCE, after the verify+retry loop has settled, so the
+      // UI never flashes a rejected briefing and the voice agent reads only
+      // the final version.
 
       return { briefingId, sourceCount: uniqueSources.length, content };
     } finally {
