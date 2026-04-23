@@ -1,17 +1,17 @@
 # Ravendr
 
-**Ask it anything by voice. Watch a platform stack build an answer for you in real time.**
+**Tap the mic, say a topic, watch Render Workflows orchestrate a voice-first research pipeline in real time.**
 
-Ravendr is a viral-demo-shaped web app that shows four vendors at four non-overlapping layers of the modern AI stack:
+Ravendr is a demo built on four platforms, each load-bearing at a distinct layer:
 
-| Layer | Vendor |
+| Layer | Platform |
 |---|---|
-| Voice I/O runtime (STT · VAD · turn · TTS) | **AssemblyAI** Voice Agent API |
-| Compute, durable orchestration, state | **Render** (Web Service · Workflows · Postgres) |
-| Agent reasoning + memory | **Mastra** |
-| Research + LLM synthesis with inline citations | **You.com** Research API |
+| Voice I/O (STT · VAD · LLM · TTS) | **AssemblyAI** Voice Agent API |
+| Durable orchestration · every step a checkpointed task | **Render Workflows** |
+| LLM reasoning (planning + synthesis) via a unified model router | **Mastra** (Agent + `anthropic/claude-sonnet-4`) |
+| Parallel web research with citations | **You.com** Research API |
 
-When you tap the mic and say a topic, the whole chain lights up on screen while a voice narrator tells you what each platform is doing. The briefing itself is the dessert; the orchestration is the main course.
+When you click the mic, Render dispatches a `voiceSession` workflow task. That task holds the AssemblyAI session, tunnels audio back to the browser via the web service, and — when the AssemblyAI agent fires its `research` tool — dispatches the research pipeline as a tree of Render subtasks. Planning, each parallel search, and synthesis are separate runs; a failure in one only retries that one.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ojusave/ravendr)
 
@@ -20,81 +20,125 @@ When you tap the mic and say a topic, the whole chain lights up on screen while 
 ## Architecture
 
 ```
-Browser ──(WS)──► Render Web Service ──(startTask)──► Render Workflow task
-   ▲  (audio +               │                             │
-   │   SSE events)            │ LISTEN                      │ NOTIFY
-   │                          ▼                             ▼
-   └──── AssemblyAI ◄── Postgres (LISTEN/NOTIFY event bus) ◄──┘
-         (voice agent)          │                             │
-                                │                             ├─► Mastra (memory)
-                                │                             ├─► You.com Research
-                                ▼                             └─► Anthropic (LLM synthesis)
-                        Narrator (templates +
-                        LLM summarization)
+ Browser
+   │   audio WS  ←→   Web service (broker only, ~150 LoC)
+   │   SSE feed  ←──       │   POST /api/start
+   │                        │       client.workflows.startTask("voiceSession", …)
+   │                        │   reverse audio WS  ←───────────────────────────┐
+   │                        ▼                                                 │
+   │                 Postgres (LISTEN/NOTIFY for phase events)                │
+   │                        ▲                                                 │
+   │                        │                                                 │
+   └──────── SSE ───────────┘                                                 │
+                                                                              │
+ ╔════════════════ Render Workflow service ═════════════════════╗             │
+ ║                                                              ║             │
+ ║  voiceSession (root task, up to 1h)  ────────────────────────╬─────────────┘
+ ║    ├─ opens WebSocket to AssemblyAI                          ║
+ ║    ├─ opens reverse WebSocket back to web service            ║
+ ║    ├─ pipes mic ↔ AssemblyAI                                 ║
+ ║    └─ on tool.call "start_research":                         ║
+ ║         await research(sessionId, topic)   ← subtask         ║
+ ║           ├─ await plan_queries(topic)       ← subtask       ║
+ ║           ├─ await Promise.all([                             ║
+ ║           │      search_branch × N           ← N subtasks    ║
+ ║           │   ])                                             ║
+ ║           └─ await synthesize(topic, branches) ← subtask     ║
+ ║         send tool.result → AssemblyAI speaks briefing        ║
+ ║                                                              ║
+ ╚══════════════════════════════════════════════════════════════╝
 ```
 
-**Flow:** The user's voice utterance becomes a `research(topic)` tool call on AssemblyAI. The web service writes a session row, dispatches a Render Workflow task, and returns a short acknowledgement. The task runs two You.com calls (Standard for the main briefing, Lite for recent developments) — You.com's own LLM does the synthesis and returns a cited Markdown briefing. We strip the `[1, 2]`-style inline markers so TTS reads cleanly, keep the sources array for on-screen cards, write to Postgres, and emit structured `PhaseEvent`s via `NOTIFY`. The web service `LISTEN`-s; every event goes both to the browser (SSE, for the chain ribbon) and to the narrator (which turns it into a short spoken line via `session.say()`).
+**Why each piece is load-bearing:**
+- **Render Workflows** — every meaningful step is a separate task run with its own retry config. If `search_branch #3` fails, only `#3` retries; the plan and other 4 branches are preserved.
+- **AssemblyAI** — one WebSocket for STT + VAD + turn-taking + LLM + TTS. The voice session lives inside the workflow task.
+- **Mastra** — Agent primitive calls Anthropic via the built-in model router (`anthropic/claude-sonnet-4-*`). No AI SDK leakage into our deps.
+- **You.com** — parallel web research with inline citations, called per-branch.
+
+## Flow
+
+1. User clicks mic → `POST /api/start` → web service creates a session, issues an internal token, dispatches `voiceSession` task, returns `sessionId`.
+2. Browser opens `/ws/client?sessionId=…` (audio in and out).
+3. `voiceSession` task boots → opens `/ws/task?sessionId=…&token=…` back to the web service → the broker pairs them.
+4. Task opens AssemblyAI session, sends greeting → AssemblyAI's voice plays the greeting out the browser.
+5. User speaks a topic → AssemblyAI transcribes → its LLM calls `start_research(topic)`.
+6. Task handler dispatches the `research` subtask asynchronously, subscribes to the phase-event bus, and returns an opening line for the agent to speak.
+7. As `plan.ready`, `youcom.call.completed`, `agent.synthesizing`, `briefing.ready` events flow in from subtasks, the task's `next_update` tool streams each back as a narration payload. AssemblyAI's agent loops, speaking each event live.
+8. When `briefing.ready` fires, the final narration payload carries the full briefing text. Agent reads it aloud. Done.
+9. The browser also sees every phase event via SSE — the activity feed + chain ribbon fill in on screen while voice narrates.
 
 ## Repo layout
 
 ```
 src/
-  server.ts              composition root
-  routes.ts              HTTP + SSE
-  config.ts              Zod-validated env
+  server.ts                composition root for the web service
+  routes.ts                HTTP routes: /api/start, /api/sessions/:id/events (SSE), /api/briefings/:id
+  config.ts                Zod-validated env (BaseConfig + WebConfig)
 
-  shared/                ports.ts · events.ts · envelope.ts · errors.ts · logger.ts
-  research/              runner.ts · agent-prompts.ts
-  narrator/              narrator-agent.ts · session.ts · templates.ts
-
-  assemblyai/            runtime.ts (VoiceRuntime port) · ws-proxy.ts
-  mastra/                memory.ts (@mastra/pg)
-  youcom/                research.ts (ResearchProvider port — also provides synthesis)
+  shared/                  ports.ts · events.ts · envelope.ts · errors.ts · logger.ts
+  youcom/research.ts       You.com Research API adapter
 
   render/
-    db.ts                typed Postgres queries
-    event-bus.ts         LISTEN/NOTIFY EventBus port
-    workflow-dispatcher.ts
-    tasks/               research-task.ts (the hero-chain body)
+    db.ts                  typed Postgres queries
+    event-bus.ts           LISTEN/NOTIFY event bus
+    session-broker.ts      pairs /ws/client + /ws/task, buffered & text-framed
+    workflow-dispatcher.ts wraps @renderinc/sdk for voiceSession dispatch
+    tasks/
+      voice-session.ts     ROOT task: AssemblyAI WS + reverse WS + research orchestration
+      research.ts          subtask: awaits plan → parallel searches → synthesize
+      plan-queries.ts      leaf subtask: Mastra Agent plans queries via Anthropic
+      search-branch.ts     leaf subtask: one You.com Research call (× N in parallel)
+      synthesize.ts        leaf subtask: Mastra Agent writes the spoken briefing
+      index.ts             task registration for the workflow service
 
-static/                  vanilla ES modules — index.html · main.js · mic.js · chain-ribbon.js · api-client.js
-migrations/              0001_init.sql
-scripts/migrate.ts       applies every .sql file in order
-render.yaml              Blueprint (web + db; Workflow service is created manually)
+static/                    vanilla ES modules — index.html · main.js · mic.js · chain-ribbon.js · api-client.js
+migrations/                0001_init.sql
+scripts/migrate.ts         applies every .sql file in order
+render.yaml                Blueprint (web + db shared env group)
 ```
-
-Three vendor folders each implement exactly one port (`VoiceRuntime`, `ResearchProvider`, `EventBus`). `src/research/` and `src/narrator/` import only from `src/shared/ports.ts` — never from a vendor folder directly.
 
 ## Run locally
 
 ```bash
-cp .env.example .env   # fill in the keys
+cp .env.example .env          # fill in the keys
 createdb ravendr
 npm install
-npm run migrate        # applies migrations/0001_init.sql
-npm run dev            # web service on :3000
-# in a second terminal, for the workflow task runner:
+npm run migrate               # applies migrations
+npm run dev                   # web service on :3000
+# second terminal — workflow task runner:
 npm run dev:tasks
 ```
 
-Open `http://localhost:3000`, grant mic permission, tap, and say a topic.
+Open `http://localhost:3000`, grant mic permission, click mic, say a topic.
+
+Required env vars (both services):
+- `DATABASE_URL` — Postgres
+- `ANTHROPIC_API_KEY` — Mastra reads this for its router
+- `ANTHROPIC_MODEL` — e.g. `claude-sonnet-4-20250514` (auto-prefixed to `anthropic/…` for the router)
+- `YOU_API_KEY`, `YOU_BASE_URL`
+- `ASSEMBLYAI_API_KEY` — **required on the workflow service too** (voiceSession holds the WS)
+
+Web-service-only:
+- `RENDER_API_KEY`
+- `WORKFLOW_SLUG` (default `ravendr-workflow`)
+- `PUBLIC_WEB_URL` — optional fallback; normally the web service infers its own URL from `RENDER_EXTERNAL_URL` or the incoming request host
 
 ## Deploy on Render
 
-1. **Fork** this repo.
-2. Click **Deploy to Render** — the Blueprint provisions `ravendr-web` and `ravendr-db`.
-3. **Create a Workflow service** (`ravendr-workflow`) manually in the dashboard, pointing at the same repo, using start command `node dist/render/tasks/index.js`. Set the same env group as the web service.
-4. Set the three secrets (`YOU_API_KEY`, `ASSEMBLYAI_API_KEY`, `RENDER_API_KEY`) on both services.
-5. Migrations run automatically on each deploy via `preDeployCommand: npm run migrate`. No manual step.
+1. Fork this repo.
+2. Click **Deploy to Render** → Blueprint provisions `ravendr-web` + `ravendr-db`.
+3. Create a **Workflow service** (`ravendr-workflow`) manually in the dashboard, connected to the same repo. Start command: `node dist/render/tasks/index.js`.
+4. Put secrets on the `ravendr-shared` env group (both services read from it):
+   - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
+   - `YOU_API_KEY`, `YOU_BASE_URL`
+   - `ASSEMBLYAI_API_KEY`, `ASSEMBLYAI_VOICE` (optional)
+5. Web-service-only env:
+   - `RENDER_API_KEY`, `WORKFLOW_SLUG`
+6. Migrations run automatically on each web-service deploy via `preDeployCommand: npm run migrate`.
 
-## What each platform earns
+## Swap any platform
 
-- **AssemblyAI** — the only piece that can deliver sub-300ms turn-taking, barge-in, and a single-WebSocket voice loop. Owns the *feel*.
-- **Render (Web Service · Workflows · Postgres)** — where the durable research task lives + all app state. No HTTP handler can carry a 30–60s task; no frontend can host a `LISTEN/NOTIFY` event bus.
-- **Mastra** — memory primitives; scoped to memory in v1, upgradable to a full agent loop later.
-- **You.com** — research *and* LLM synthesis *and* inline citations — one API call. Absorbs the layer that would otherwise be a separate LLM provider.
-
-Swap any one of them by writing a new adapter behind its port. No feature code changes.
+Adapters live behind two ports (`EventBus` in `src/shared/ports.ts`, `ResearchProvider` same file). Render Workflows is used directly via `@renderinc/sdk`. Mastra's Agent is instantiated per-subtask. You can swap in a different voice provider by reimplementing the AssemblyAI WS handling inside `src/render/tasks/voice-session.ts`, a different research provider by writing a new adapter against `ResearchProvider`, or a different LLM by changing the `model` string passed to `new Agent({...})`.
 
 ## License
 
