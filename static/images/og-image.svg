@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="50%" stop-color="#fafafa"/>
+      <stop offset="100%" stop-color="#f4f4f5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.2" cy="0.2" r="0.6">
+      <stop offset="0%" stop-color="#9333ea" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#9333ea" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- top-left brand dot -->
+  <rect x="80" y="80" width="14" height="14" fill="#9333ea"/>
+  <text x="108" y="93" font-family="Inter, sans-serif" font-size="17" font-weight="600" fill="#18181b" letter-spacing="-0.02em">Ravendr</text>
+
+  <!-- headline -->
+  <text x="80" y="255" font-family="Roboto, sans-serif" font-weight="300" font-size="104" fill="#18181b" letter-spacing="-0.03em">Voice-first research</text>
+  <text x="80" y="360" font-family="Roboto, sans-serif" font-weight="300" font-size="104" fill="#18181b" letter-spacing="-0.03em">on the Render stack.</text>
+
+  <!-- subhead -->
+  <text x="80" y="430" font-family="Inter, sans-serif" font-size="26" fill="#71717a">Tap the mic. Say a topic. Render Workflows orchestrates the pipeline live.</text>
+
+  <!-- platform row -->
+  <g font-family="JetBrains Mono, monospace" font-size="22" font-weight="500">
+    <rect x="80" y="500" width="14" height="14" fill="#0891b2"/>
+    <text x="104" y="513" fill="#18181b">AssemblyAI</text>
+
+    <rect x="300" y="500" width="14" height="14" fill="#9333ea"/>
+    <text x="324" y="513" fill="#18181b">Render Workflows</text>
+
+    <rect x="614" y="500" width="14" height="14" fill="#ea580c"/>
+    <text x="638" y="513" fill="#18181b">Mastra</text>
+
+    <rect x="762" y="500" width="14" height="14" fill="#7c3aed"/>
+    <text x="786" y="513" fill="#18181b">You.com</text>
+  </g>
+
+  <!-- bottom border -->
+  <rect x="80" y="560" width="1040" height="1" fill="#e4e4e7"/>
+  <text x="80" y="590" font-family="Inter, sans-serif" font-size="18" fill="#71717a">github.com/ojusave/ravendr</text>
+</svg>
