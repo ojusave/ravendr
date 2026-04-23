@@ -49,6 +49,7 @@ function setMicActive(on) {
 
 const KIND_CLASS = {
   "session.started": "kind-assembly",
+  "ask.classified": "kind-mastra",
   "plan.ready": "kind-mastra",
   "agent.planning": "kind-mastra",
   "agent.synthesizing": "kind-mastra",
@@ -160,6 +161,7 @@ function summarize(e) {
     case "workflow.failed": return `workflow.failed — ${e.message}`;
     case "agent.planning": return `agent.planning — ${e.step}`;
     case "plan.ready": return `plan.ready — ${e.queries.length} queries: ${e.queries.map((q) => q.angle).join(", ")}`;
+    case "ask.classified": return `ask.classified — shape: ${e.shape}`;
     case "agent.synthesizing": return "agent.synthesizing";
     case "verify.started": return "verify.started — checking briefing vs. ask";
     case "verify.passed": return `verify.passed — ${e.reason}`;

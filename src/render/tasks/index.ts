@@ -11,6 +11,7 @@
  */
 export { voiceSession } from "./voice-session.js";
 export { research } from "./research.js";
+export { classify_ask } from "./classify-ask.js";
 export { plan_queries } from "./plan-queries.js";
 export { search_branch } from "./search-branch.js";
 export { synthesize } from "./synthesize.js";

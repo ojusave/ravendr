@@ -8,6 +8,7 @@ const LANE_BY_KIND = {
   "workflow.failed": "render",
   "research.retrying": "render",
   "briefing.ready": "render",
+  "ask.classified": "mastra",
   "agent.planning": "mastra",
   "plan.ready": "mastra",
   "agent.synthesizing": "mastra",
@@ -75,6 +76,9 @@ export function createRibbon(rootEl) {
           break;
         case "plan.ready":
           setSub("mastra", `plan · ${event.queries.length} queries`);
+          break;
+        case "ask.classified":
+          setSub("mastra", `shape · ${event.shape}`);
           break;
         case "agent.synthesizing":
           setSub("mastra", "synthesizing");

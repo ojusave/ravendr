@@ -3,6 +3,7 @@ import { loadWorkflowConfig } from "../../config.js";
 import { createPostgresEventBus } from "../event-bus.js";
 import { createBriefing, setSessionStatus } from "../db.js";
 import { logger } from "../../shared/logger.js";
+import { classify_ask } from "./classify-ask.js";
 import { plan_queries } from "./plan-queries.js";
 import { search_branch, type BranchResult } from "./search-branch.js";
 import { synthesize } from "./synthesize.js";
@@ -59,6 +60,9 @@ export const research = task(
         runId,
       });
 
+      // ── classify the ask up front so every downstream step adapts ──
+      const { shape } = await classify_ask(sessionId, topic);
+
       let feedback = "";
       let attempt = 0;
       let result: Awaited<ReturnType<typeof synthesize>>;
@@ -76,9 +80,9 @@ export const research = task(
           )
         );
 
-        result = await synthesize(sessionId, briefingId, topic, branches);
+        result = await synthesize(sessionId, briefingId, topic, branches, shape);
 
-        const verdict = await verify(sessionId, topic, result.content);
+        const verdict = await verify(sessionId, topic, result.content, shape);
 
         if (verdict.passes || attempt >= 1) break;
 

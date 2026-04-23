@@ -2,7 +2,7 @@ import { task } from "@renderinc/sdk/workflows";
 import { loadWorkflowConfig } from "../../config.js";
 import { createPostgresEventBus } from "../event-bus.js";
 import { addSources, completeBriefing, setSessionStatus } from "../db.js";
-import { synthesizerAgent } from "../../mastra/agents.js";
+import { synthesizerAgent, type AskShape } from "../../mastra/agents.js";
 import type { BranchResult } from "./search-branch.js";
 
 export interface SynthesizeResult {
@@ -22,7 +22,8 @@ export const synthesize = task(
     sessionId: string,
     briefingId: string,
     topic: string,
-    branches: BranchResult[]
+    branches: BranchResult[],
+    shape: AskShape = "narrative"
   ): Promise<SynthesizeResult> {
     const config = loadWorkflowConfig();
     const events = createPostgresEventBus({
@@ -54,7 +55,7 @@ export const synthesize = task(
         `Synthesize the spoken briefing now.`,
       ].join("\n");
 
-      const agent = synthesizerAgent(config.ANTHROPIC_MODEL);
+      const agent = synthesizerAgent(config.ANTHROPIC_MODEL, shape);
       const result = await agent.generate(prompt);
       const raw = (result as { text?: string }).text ?? "";
       const content = stripCitationMarkers(raw).trim();

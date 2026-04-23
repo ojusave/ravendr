@@ -3,7 +3,7 @@ import { z } from "zod";
 import { loadWorkflowConfig } from "../../config.js";
 import { createPostgresEventBus } from "../event-bus.js";
 import { logger } from "../../shared/logger.js";
-import { verifierAgent } from "../../mastra/agents.js";
+import { verifierAgent, type AskShape } from "../../mastra/agents.js";
 
 export interface VerifyResult {
   passes: boolean;
@@ -21,7 +21,8 @@ export const verify = task(
   async function verify(
     sessionId: string,
     topic: string,
-    briefingText: string
+    briefingText: string,
+    shape: AskShape = "narrative"
   ): Promise<VerifyResult> {
     const config = loadWorkflowConfig();
     const events = createPostgresEventBus({
@@ -36,7 +37,7 @@ export const verify = task(
         kind: "verify.started",
       });
 
-      const agent = verifierAgent(config.ANTHROPIC_MODEL);
+      const agent = verifierAgent(config.ANTHROPIC_MODEL, shape);
       const prompt = [
         `User request: "${topic}"`,
         ``,
