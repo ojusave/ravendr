@@ -2,38 +2,35 @@ import { task } from "@renderinc/sdk/workflows";
 import { WebSocket } from "ws";
 import { loadWorkflowConfig } from "../../config.js";
 import { createPostgresEventBus } from "../event-bus.js";
-import { setSessionTopic, setSessionStatus } from "../db.js";
+import {
+  setSessionTopic,
+  setSessionStatus,
+  getBriefing,
+} from "../db.js";
 import { logger } from "../../shared/logger.js";
 import { research } from "./research.js";
 import type { PhaseEvent } from "../../shared/events.js";
-import { getBriefing } from "../db.js";
 
 /**
  * Root Render Workflow task: owns a voice session end-to-end.
  *
- * Architecture:
- *   Browser ←audio WS→ Web service (pure broker) ←reverse WS→ voiceSession task
- *                                                                  ↕
- *                                                            AssemblyAI Voice Agent
+ *   Browser ←audio WS→ Web service (broker) ←reverse WS→ voiceSession task
+ *                                                             ↕
+ *                                                       AssemblyAI Voice Agent
  *
- * This task:
- *   1. Opens a reverse WebSocket back to the web service (audio tunnel).
- *   2. Opens a WebSocket to AssemblyAI (acts as the "server-side proxy"
- *      that AssemblyAI's docs require).
- *   3. Pipes mic audio browser→AssemblyAI and agent audio AssemblyAI→browser.
- *   4. On AssemblyAI tool.call "research(topic)", dispatches the research
- *      subtask (which itself fans out into plan/search/synthesize subtasks),
- *      awaits the briefing, returns it as tool.result.
- *
- * Every meaningful step is its own Render task run, independently retried.
+ * Single blocking `research` tool. The AssemblyAI LLM does not reliably
+ * loop polling-style tool calls, so we collapse the pipeline into one
+ * tool.result that carries a full narration + the briefing. The agent
+ * calls research(topic), waits (~60-90s), then reads the entire return
+ * aloud. Visual activity feed carries real-time progress during the wait.
  */
 
 const TOOLS = [
   {
     type: "function" as const,
-    name: "start_research",
+    name: "research",
     description:
-      "Start the research workflow for a topic. Returns { speak, done }. Say the speak text out loud in your natural voice, then IMMEDIATELY call next_update to get the next progress update. Do not wait, do not ask the user anything. done will be false here — the research is just starting.",
+      "Research a topic end-to-end. BLOCKS for up to a few minutes while Render dispatches a Mastra+You.com workflow. Returns the full spoken narration including the briefing — read it aloud in full, verbatim, in your natural voice.",
     parameters: {
       type: "object",
       properties: {
@@ -45,42 +42,18 @@ const TOOLS = [
       required: ["topic"],
     },
   },
-  {
-    type: "function" as const,
-    name: "next_update",
-    description:
-      "Get the next progress update from the running research. Returns { speak, done }. Say the speak text out loud. If done is false, IMMEDIATELY call next_update again. If done is true, the speak text is the final briefing — say it all, then stop.",
-    parameters: { type: "object", properties: {} },
-  },
 ];
 
-const SYSTEM_PROMPT = `You are Ravendr, a live voice narrator. You narrate what the backend is doing while it researches a topic.
+const SYSTEM_PROMPT = `You are Ravendr, a voice research host.
 
-When the user says a topic: call start_research(topic=...), then call next_update repeatedly until done:true. After EVERY tool return, speak the \`speak\` text out loud in your voice, then immediately call the next tool. Do not speak anything except what the \`speak\` field contains. Do not explain what you are about to do. Do not say "I'll call next update" — just call it.
-
-Speaking rules:
-- Read the \`speak\` field verbatim; do not paraphrase or add commentary.
-- Never verbalize tool names, JSON fields, or procedural instructions. Those are for you to act on silently.
-- Never ask the user questions mid-research.
-
-Stop condition: when a tool returns done:true, the \`speak\` field holds the final briefing. Read all of it, then stop. Do not call next_update again.`;
+When the user gives you any topic, call the \`research\` tool with their exact words as \`topic\`. The tool takes about a minute to return — that's expected, just wait. When it returns, read the ENTIRE returned text aloud, verbatim, in your natural voice. Do not paraphrase, do not shorten, do not add commentary before or after, do not ask follow-up questions. After reading the returned text, stop.`;
 
 const GREETING =
-  "Hi — tell me any topic and I'll research it live. You'll see the stack working on screen while I dig in, then I'll read you what I found.";
-
-interface BrowserMessage {
-  type: string;
-  audio?: string;
-}
+  "Hi — tell me any topic and I'll research it live. Watch the stack work on screen while I dig in, then I'll read you what I found.";
 
 interface AssemblyEvent {
   type?: string;
   [key: string]: unknown;
-}
-
-interface NarrationPayload {
-  speak: string;
-  done: boolean;
 }
 
 function formatList(items: string[]): string {
@@ -90,12 +63,11 @@ function formatList(items: string[]): string {
   return items.slice(0, -1).join(", ") + ", and " + items[items.length - 1];
 }
 
-
 export const voiceSession = task(
   {
     name: "voiceSession",
     plan: "starter",
-    timeoutSeconds: 3600, // 1 hour — a single research session never runs this long
+    timeoutSeconds: 3600,
     retry: { maxRetries: 0, waitDurationMs: 1_000, backoffScaling: 1 },
   },
   async function voiceSession(
@@ -120,117 +92,7 @@ export const voiceSession = task(
     });
     await events.start();
 
-    // ── Narration queue for the polling-loop tool ───────────────────────
-    const narrationQueue: NarrationPayload[] = [];
-    const narrationWaiters: Array<(n: NarrationPayload) => void> = [];
-    let totalBranches = 0;
-    let seenBranches = 0;
-    const phaseSubscriptions: Array<() => void> = [];
-    let researchDispatched = false;
-
-    function pushNarration(n: NarrationPayload): void {
-      const w = narrationWaiters.shift();
-      if (w) w(n);
-      else narrationQueue.push(n);
-    }
-
-    function classify(e: PhaseEvent): NarrationPayload | null {
-      switch (e.kind) {
-        case "workflow.started":
-          return {
-            speak:
-              "Render's workflow runner just picked up the job — spinning up now.",
-            done: false,
-          };
-        case "plan.ready": {
-          totalBranches = e.queries.length;
-          const angles = e.queries.map((q) => q.angle);
-          return {
-            speak: `Mastra's agent planned ${e.queries.length} parallel queries — covering ${formatList(angles)}. Firing them off to You.com now.`,
-            done: false,
-          };
-        }
-        case "youcom.call.completed":
-          seenBranches += 1;
-          return {
-            speak: `A You.com ${e.tier} call came back with ${e.sourceCount} sources in ${Math.round(e.latencyMs / 1000)} seconds. That's ${seenBranches} of ${totalBranches || "several"} done.`,
-            done: false,
-          };
-        case "agent.synthesizing":
-          return {
-            speak:
-              "All the You.com calls are in. Mastra's agent is weaving the briefing together now — one moment.",
-            done: false,
-          };
-        case "workflow.failed":
-          return {
-            speak: `Something went wrong — ${e.message.slice(0, 120)}.`,
-            done: true,
-          };
-        default:
-          return null;
-      }
-    }
-
-    async function subscribeAndDispatch(topic: string): Promise<void> {
-      await setSessionTopic(config.DATABASE_URL, sessionId, topic);
-      await setSessionStatus(config.DATABASE_URL, sessionId, "researching");
-      await events.publish({
-        sessionId,
-        at: Date.now(),
-        kind: "session.started",
-        topic,
-      });
-
-      phaseSubscriptions.push(events.subscribe(sessionId, (e) => {
-        if (e.kind === "briefing.ready") {
-          getBriefing(config.DATABASE_URL, e.briefingId)
-            .then((b) => {
-              const content =
-                b?.content ??
-                "The briefing finished but the content didn't come through.";
-              pushNarration({
-                speak: content,
-                done: true,
-              });
-            })
-            .catch(() => {
-              pushNarration({
-                speak: "Couldn't load the finished briefing.",
-                done: true,
-              });
-            });
-          return;
-        }
-        const n = classify(e);
-        if (n) pushNarration(n);
-      }));
-
-      // Fire the research subtask in the background; its events flow through
-      // the subscription above. We do NOT await — next_update is what streams
-      // narration back to the voice agent.
-      (async () => {
-        try {
-          await research(sessionId, topic);
-        } catch (err) {
-          logger.error({ err, sessionId }, "research subtask failed");
-          pushNarration({
-            speak: "The research workflow hit an issue. Please try again.",
-            done: true,
-          });
-        }
-      })();
-    }
-
-    async function nextNarration(): Promise<NarrationPayload> {
-      const queued = narrationQueue.shift();
-      if (queued) return queued;
-      return new Promise<NarrationPayload>((resolve) => {
-        narrationWaiters.push(resolve);
-      });
-    }
-
-    // ── open reverse WS to web service ─────────────────────────────────
+    // ── open reverse WS to web service ────────────────────────────────
     const reverseUrl = `${webUrl.replace(
       /^http/,
       "ws"
@@ -240,27 +102,22 @@ export const voiceSession = task(
     logger.info({ reverseUrl }, "voiceSession: connecting reverse WS");
     const browserWS = new WebSocket(reverseUrl);
 
-    // ── open AssemblyAI WS ─────────────────────────────────────────────
+    // ── open AssemblyAI WS ────────────────────────────────────────────
     logger.info({ url: assemblyAgentUrl }, "voiceSession: opening AssemblyAI");
     const assemblyWS = new WebSocket(assemblyAgentUrl, {
       headers: { authorization: `Bearer ${assemblyKey}` },
     });
+
+    const phaseSubscriptions: Array<() => void> = [];
+    let researchPromise: Promise<string> | null = null;
 
     const done = new Promise<void>((resolve) => {
       let closed = false;
       const closeOnce = () => {
         if (closed) return;
         closed = true;
-        try {
-          browserWS.close();
-        } catch {
-          /* noop */
-        }
-        try {
-          assemblyWS.close();
-        } catch {
-          /* noop */
-        }
+        try { browserWS.close(); } catch { /* noop */ }
+        try { assemblyWS.close(); } catch { /* noop */ }
         resolve();
       };
       browserWS.once("close", closeOnce);
@@ -269,13 +126,11 @@ export const voiceSession = task(
       assemblyWS.once("error", closeOnce);
     });
 
-    // Wait for both peers to open.
     await Promise.all([
       waitForOpen(browserWS, "browser-reverse"),
       waitForOpen(assemblyWS, "assemblyai"),
     ]);
 
-    // ── configure AssemblyAI session ───────────────────────────────────
     assemblyWS.send(
       JSON.stringify({
         type: "session.update",
@@ -288,12 +143,11 @@ export const voiceSession = task(
       })
     );
 
-    // Tell the browser we're live.
     sendBrowser(browserWS, { type: "ready" });
 
-    // ── browser → AssemblyAI: mic audio ────────────────────────────────
+    // ── browser → AssemblyAI: mic audio ──────────────────────────────
     browserWS.on("message", (raw) => {
-      const msg = parseJson<BrowserMessage>(raw);
+      const msg = parseJson<{ type?: string; audio?: string }>(raw);
       if (!msg) return;
       if (msg.type === "audio" && typeof msg.audio === "string") {
         if (assemblyWS.readyState === WebSocket.OPEN) {
@@ -304,7 +158,7 @@ export const voiceSession = task(
       }
     });
 
-    // ── AssemblyAI → browser: agent audio, transcripts, tool.call ──────
+    // ── AssemblyAI → browser: agent audio, transcripts, tool.call ────
     assemblyWS.on("message", async (raw: Buffer) => {
       const event = parseJson<AssemblyEvent>(raw);
       if (!event) return;
@@ -345,57 +199,63 @@ export const voiceSession = task(
           const name = String(event.name ?? "");
           const args =
             (event.args as Record<string, unknown> | undefined) ?? {};
-
-          (async () => {
-            let reply: NarrationPayload;
-            if (name === "start_research") {
-              const topic = String(args.topic ?? "").trim();
-              if (!topic) {
-                reply = {
-                  speak: "I didn't catch the topic — can you say it again?",
-                  done: true,
-                };
-              } else if (researchDispatched) {
-                reply = {
-                  speak: "Research is already running — hold on.",
-                  done: false,
-                };
-              } else {
-                researchDispatched = true;
-                try {
-                  await subscribeAndDispatch(topic);
-                  reply = {
-                    speak: `Okay — researching ${topic}. Render's workflow is dispatched and I'll narrate every step as it happens.`,
-                    done: false,
-                  };
-                } catch (err) {
-                  logger.error(
-                    { err, sessionId, topic },
-                    "start_research failed"
-                  );
-                  reply = {
-                    speak:
-                      "I hit an issue kicking off the workflow. Please try again.",
-                    done: true,
-                  };
-                }
-              }
-            } else if (name === "next_update") {
-              reply = await nextNarration();
-            } else {
-              logger.warn({ name }, "unknown tool call");
-              reply = { speak: "Unknown tool.", done: true };
-            }
+          if (name !== "research") {
             assemblyWS.send(
               JSON.stringify({
                 type: "tool.result",
                 call_id: callId,
-                result: JSON.stringify(reply),
+                result: JSON.stringify("Unknown tool."),
               })
             );
-          })().catch((err) => {
-            logger.error({ err, sessionId }, "tool.call handler failed");
-          });
+            break;
+          }
+          const topic = String(args.topic ?? "").trim();
+          if (!topic) {
+            assemblyWS.send(
+              JSON.stringify({
+                type: "tool.result",
+                call_id: callId,
+                result: JSON.stringify(
+                  "I didn't catch the topic — can you say it again?"
+                ),
+              })
+            );
+            break;
+          }
+
+          // Memoize: multiple tool.call for the same topic share the same
+          // run. The second caller gets the same final narration.
+          if (!researchPromise) {
+            researchPromise = runResearch(
+              topic,
+              sessionId,
+              config.DATABASE_URL,
+              events,
+              phaseSubscriptions
+            );
+          }
+          researchPromise
+            .then((narration) => {
+              assemblyWS.send(
+                JSON.stringify({
+                  type: "tool.result",
+                  call_id: callId,
+                  result: JSON.stringify(narration),
+                })
+              );
+            })
+            .catch((err) => {
+              logger.error({ err, sessionId, topic }, "research failed");
+              assemblyWS.send(
+                JSON.stringify({
+                  type: "tool.result",
+                  call_id: callId,
+                  result: JSON.stringify(
+                    "I hit an issue running the research. Please try again."
+                  ),
+                })
+              );
+            });
           break;
         }
         case "session.error":
@@ -425,6 +285,87 @@ export const voiceSession = task(
   }
 );
 
+/**
+ * Dispatches the research subtask, watches phase events, and — when
+ * briefing.ready fires — composes a single rich narration containing
+ * what each platform did plus the full briefing text.
+ */
+async function runResearch(
+  topic: string,
+  sessionId: string,
+  databaseUrl: string,
+  events: Awaited<ReturnType<typeof createPostgresEventBus>>,
+  phaseSubscriptions: Array<() => void>
+): Promise<string> {
+  const summary = {
+    plannedCount: 0,
+    angles: [] as string[],
+    branchesComplete: 0,
+    totalSources: 0,
+  };
+
+  await setSessionTopic(databaseUrl, sessionId, topic);
+  await setSessionStatus(databaseUrl, sessionId, "researching");
+  await events.publish({
+    sessionId,
+    at: Date.now(),
+    kind: "session.started",
+    topic,
+  });
+
+  const briefingReady = new Promise<{ briefingId: string }>(
+    (resolve, reject) => {
+      const dispose = events.subscribe(sessionId, (e: PhaseEvent) => {
+        switch (e.kind) {
+          case "plan.ready":
+            summary.plannedCount = e.queries.length;
+            summary.angles = e.queries.map((q) => q.angle);
+            break;
+          case "youcom.call.completed":
+            summary.branchesComplete += 1;
+            summary.totalSources += e.sourceCount;
+            break;
+          case "briefing.ready":
+            resolve({ briefingId: e.briefingId });
+            break;
+          case "workflow.failed":
+            reject(new Error(e.message || "workflow failed"));
+            break;
+        }
+      });
+      phaseSubscriptions.push(dispose);
+    }
+  );
+
+  // Fire research subtask in background (its own checkpointed tree of subtasks).
+  (async () => {
+    try {
+      await research(sessionId, topic);
+    } catch (err) {
+      logger.error({ err, sessionId }, "research subtask failed");
+    }
+  })();
+
+  const { briefingId } = await briefingReady;
+  const briefing = await getBriefing(databaseUrl, briefingId);
+  const body =
+    briefing?.content ??
+    "The briefing finished but the content didn't come through.";
+
+  const prefix = [
+    `Okay — here's what I found on ${topic}.`,
+    `Render spun up a durable workflow for this run.`,
+    summary.plannedCount
+      ? `Mastra's agent planned ${summary.plannedCount} parallel queries, covering ${formatList(summary.angles)}.`
+      : `Mastra's agent planned the research angles.`,
+    summary.branchesComplete
+      ? `You.com ran ${summary.branchesComplete} searches in parallel and came back with ${summary.totalSources} sources total.`
+      : `You.com handled the research calls.`,
+    `Here's the briefing.`,
+  ].join(" ");
+
+  return `${prefix}\n\n${body}`;
+}
 
 function waitForOpen(ws: WebSocket, label: string): Promise<void> {
   return new Promise((resolve, reject) => {
