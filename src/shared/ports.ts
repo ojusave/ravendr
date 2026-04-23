@@ -19,13 +19,26 @@ export interface VoiceRuntime {
   openSession(opts: VoiceSessionOpts): Promise<VoiceSession>;
 }
 
+export interface VoiceToolDef {
+  type: "function";
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface VoiceSessionOpts {
   sessionId: string;
-  /** Called when the user speaks a turn. Return the reply to speak back. */
+  /** System prompt for the voice agent. If omitted, a safe default is used. */
+  systemPrompt?: string;
+  /** First utterance spoken on connect. */
+  greeting?: string;
+  /** Tools registered on session.update. */
+  tools?: VoiceToolDef[];
+  /** Fallback path: called when the agent doesn't call a tool for a final transcript. */
   onUserTurn: (text: string) => Promise<string>;
-  /** Called when AssemblyAI emits a structured tool call. */
+  /** Called when the agent fires any tool.call. Must return the text to speak. */
   onToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
-  /** Called on low-level events for logging. */
+  /** Low-level event stream for logging/transcript forwarding. */
   onEvent?: (event: VoiceEvent) => void;
   signal?: AbortSignal;
 }

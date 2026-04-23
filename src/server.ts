@@ -8,8 +8,6 @@ import { createAssemblyAIRuntime } from "./assemblyai/runtime.js";
 import { wireVoiceSession } from "./assemblyai/ws-proxy.js";
 import { createPostgresEventBus } from "./render/event-bus.js";
 import { createWorkflowDispatcher } from "./render/workflow-dispatcher.js";
-import { setSessionTopic, setSessionStatus } from "./render/db.js";
-import { awaitBriefing } from "./research/await-briefing.js";
 
 /**
  * Composition root. Wires ports to adapters, starts Hono + WebSocket upgrade,
@@ -66,36 +64,8 @@ async function main(): Promise<void> {
         sessionId,
         voice,
         events,
-        onUserTurn: async (topic: string) => {
-          // Dispatch the workflow and then BLOCK until the briefing is ready,
-          // returning the briefing text as the tool result. AssemblyAI speaks
-          // the full briefing in its own voice — one agent, one voice loop.
-          try {
-            await setSessionTopic(config.DATABASE_URL, sessionId, topic);
-            await setSessionStatus(config.DATABASE_URL, sessionId, "researching");
-            await events.publish({
-              sessionId,
-              at: Date.now(),
-              kind: "session.started",
-              topic,
-            });
-            const runId = await dispatcher.dispatchResearch({ sessionId, topic });
-            await events.publish({
-              sessionId,
-              at: Date.now(),
-              kind: "workflow.dispatched",
-              runId,
-            });
-            return await awaitBriefing({
-              sessionId,
-              events,
-              databaseUrl: config.DATABASE_URL,
-            });
-          } catch (err) {
-            logger.error({ err, sessionId, topic }, "voice dispatch failed");
-            return "Sorry — the research workflow failed. Try again in a moment.";
-          }
-        },
+        dispatcher,
+        databaseUrl: config.DATABASE_URL,
       }).catch((err) => logger.error({ err }, "wireVoiceSession failed"));
     });
   });

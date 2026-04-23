@@ -53,31 +53,28 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
 
         ws.once("open", () => {
           logger.info("AssemblyAI WS open, sending session.update");
-          // Minimum-viable session config per docs. If this fails to activate
-          // (no session.ready within ~30s) it's almost certainly an account
-          // / plan issue, not a field-shape issue.
+          const defaultTools = [
+            {
+              type: "function",
+              name: "research",
+              description: "Look up a topic and return a spoken briefing.",
+              parameters: {
+                type: "object",
+                properties: { topic: { type: "string" } },
+                required: ["topic"],
+              },
+            },
+          ];
           ws.send(
             JSON.stringify({
               type: "session.update",
               session: {
                 system_prompt:
+                  opts.systemPrompt ??
                   "You help users research topics. When a user asks about something, call the `research` tool with their request as the `topic` argument, then read back the result.",
                 output: { voice: config.voice },
-                greeting: "Hi! Tell me a topic to research.",
-                tools: [
-                  {
-                    type: "function",
-                    name: "research",
-                    description: "Look up a topic and return a spoken briefing.",
-                    parameters: {
-                      type: "object",
-                      properties: {
-                        topic: { type: "string" },
-                      },
-                      required: ["topic"],
-                    },
-                  },
-                ],
+                greeting: opts.greeting ?? "Hi! Tell me a topic to research.",
+                tools: opts.tools ?? defaultTools,
               },
             })
           );
