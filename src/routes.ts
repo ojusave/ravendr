@@ -11,7 +11,6 @@ import {
   setSessionStatus,
   setSessionTopic,
 } from "./render/db.js";
-import { attachNarrator } from "./narrator/session.js";
 import { ok, fail } from "./shared/envelope.js";
 import { AppError } from "./shared/errors.js";
 import { logger } from "./shared/logger.js";
@@ -82,11 +81,9 @@ export function buildRoutes(deps: RoutesDeps): Hono {
   app.get("/api/sessions/:id/events", (c) => {
     const sessionId = c.req.param("id");
     return streamSSE(c, async (stream) => {
-      const narrator = attachNarrator({
-        sessionId,
-        events: deps.events,
-      });
-
+      // SSE is the ONLY path for phase events → browser.
+      // WebSocket (/ws) is reserved for audio + transcripts; it doesn't
+      // forward phase events (that was causing every event to duplicate).
       const unsubscribe = deps.events.subscribe(sessionId, (event) => {
         stream
           .writeSSE({
@@ -96,12 +93,7 @@ export function buildRoutes(deps: RoutesDeps): Hono {
           })
           .catch(() => {});
       });
-
-      const cleanup = () => {
-        unsubscribe();
-        narrator.dispose();
-      };
-      stream.onAbort(cleanup);
+      stream.onAbort(() => unsubscribe());
 
       // Keep open indefinitely — client closes via AbortController.
       await new Promise<void>(() => {});

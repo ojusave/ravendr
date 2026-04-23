@@ -112,9 +112,11 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
           );
           return;
         }
-        if (debugMessageCount < 15) {
+        // Log every interesting upstream event; skip reply.audio chunks so
+        // they don't bury tool.call / transcript.user in the logs.
+        if (event.type !== "reply.audio" && debugMessageCount < 50) {
           logger.info(
-            { type: event.type, keys: Object.keys(event).slice(0, 8) },
+            { type: event.type, keys: Object.keys(event).slice(0, 10) },
             "AssemblyAI upstream message"
           );
           debugMessageCount++;
@@ -172,6 +174,7 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
             const name = String(event.name ?? "");
             const args =
               (event.args as Record<string, unknown> | undefined) ?? {};
+            logger.info({ name, id, args }, "AssemblyAI tool.call received");
             const controller = new AbortController();
             pendingToolCalls.set(id, controller);
             try {

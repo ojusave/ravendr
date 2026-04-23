@@ -48,8 +48,6 @@ export function openVoiceSocket(sessionId, handlers) {
     }
     if (msg.type === "audio" && typeof msg.audio === "string") {
       handlers.onAudio?.(msg.audio);
-    } else if (msg.type === "event" && msg.event) {
-      handlers.onEvent?.(msg.event);
     } else if (msg.type === "transcript") {
       handlers.onTranscript?.(msg);
     } else if (msg.type === "ready") {

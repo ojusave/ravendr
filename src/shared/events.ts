@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Phase events drive everything user-facing:
- *   1. The frontend chain ribbon animates.
- *   2. The narrator agent turns each event into one spoken line.
+ * Phase events drive the frontend chain ribbon and the backend activity log.
+ * They are NOT spoken — voice output comes exclusively from AssemblyAI's
+ * agent (greeting + tool.result replies + the briefing).
  *
  * Every event has a `sessionId` (scope) and `at` (ms timestamp). `kind` discriminates.
  * Keep payloads small — these fly through Postgres NOTIFY (8kB hard limit).
@@ -53,8 +53,6 @@ export const PhaseEventSchema = z.discriminatedUnion("kind", [
     sourceCount: z.number(),
   }),
 
-  // ── narrator (audit) ──────────────────────────────────────────────
-  z.object({ ...base, kind: z.literal("narrator.speech"), text: z.string() }),
 ]);
 
 export type PhaseEvent = z.infer<typeof PhaseEventSchema>;
@@ -67,7 +65,7 @@ export function parsePhaseEvent(raw: unknown): PhaseEvent | null {
 
 /** Which vendor "lane" an event belongs to, for the frontend chain ribbon. */
 export function laneOf(kind: PhaseEventKind): "assembly" | "render" | "mastra" | "youcom" | "meta" {
-  if (kind === "narrator.speech") return "assembly";
+  if (kind === "session.started") return "assembly";
   if (kind.startsWith("workflow.") || kind === "briefing.ready") return "render";
   if (kind.startsWith("agent.") || kind === "plan.ready") return "mastra";
   if (kind.startsWith("youcom.")) return "youcom";

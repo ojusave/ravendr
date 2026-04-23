@@ -72,18 +72,12 @@ function handleTranscript(msg) {
   }
 }
 
-// All voice output comes from AssemblyAI. Narrator phase lines are visual
-// only (chain ribbon + chat bubbles); the agent speaks the full briefing
-// when its `research` tool returns.
+// All voice output comes from AssemblyAI. Phase events drive only the
+// chain ribbon + backend activity log — never a chat bubble. Chat bubbles
+// are strictly: user speech + agent spoken text (from AssemblyAI).
 
 function handleEvent(event) {
   ribbon.onEvent(event);
-
-  // Narrator phase text → visual chat bubble (voice comes from AssemblyAI).
-  if (event.kind === "narrator.speech") {
-    chatBubble("assistant", event.text);
-    return;
-  }
 
   const summary = summarize(event);
   if (summary) log(summary, event);
@@ -154,7 +148,6 @@ async function start() {
   ws = openVoiceSocket(sessionId, {
     onReady: () => setStatus("Listening — say a topic."),
     onAudio: (b64) => player.enqueue(b64),
-    onEvent: handleEvent,
     onTranscript: handleTranscript,
     onError: (msg) => {
       setStatus(`Voice error: ${msg}`);

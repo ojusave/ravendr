@@ -5,7 +5,6 @@ import type {
   VoiceToolDef,
   EventBus,
 } from "../shared/ports.js";
-import type { PhaseEvent } from "../shared/events.js";
 import type { WorkflowDispatcher } from "../render/workflow-dispatcher.js";
 import {
   setSessionTopic,
@@ -305,9 +304,9 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
     });
   });
 
-  const unsubscribe = events.subscribe(sessionId, (event: PhaseEvent) => {
-    safeSend(browser, { type: "event", event });
-  });
+  // No phase-event forwarding here — the SSE route at /api/sessions/:id/events
+  // is the single source of truth for phase events → browser. Forwarding from
+  // both paths caused every event to render twice in the chat log.
 
   browser.on("message", (raw) => {
     const msg = parseJson(raw);
@@ -322,7 +321,6 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   });
 
   const cleanup = () => {
-    unsubscribe();
     abort.abort();
     session?.close().catch(() => {});
   };

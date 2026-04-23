@@ -2,7 +2,6 @@
 
 const LANE_BY_KIND = {
   "session.started": "assembly",
-  "narrator.speech": "assembly",
   "workflow.dispatched": "render",
   "workflow.started": "render",
   "workflow.completed": "render",
