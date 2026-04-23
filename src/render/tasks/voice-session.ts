@@ -159,9 +159,19 @@ export const voiceSession = task(
     });
 
     // ── AssemblyAI → browser: agent audio, transcripts, tool.call ────
+    let upstreamMessageCount = 0;
     assemblyWS.on("message", async (raw: Buffer) => {
       const event = parseJson<AssemblyEvent>(raw);
       if (!event) return;
+      // Skip reply.audio in logs — it spams. Log everything else to make
+      // voice failures legible.
+      if (event.type !== "reply.audio" && upstreamMessageCount < 80) {
+        logger.info(
+          { sessionId, type: event.type, keys: Object.keys(event).slice(0, 6) },
+          "AssemblyAI event"
+        );
+        upstreamMessageCount++;
+      }
       switch (event.type) {
         case "reply.audio": {
           const data = event.data;
@@ -179,6 +189,10 @@ export const voiceSession = task(
           });
           break;
         case "transcript.user":
+          logger.info(
+            { sessionId, text: String(event.text ?? "").slice(0, 120) },
+            "transcript.user (final)"
+          );
           sendBrowser(browserWS, {
             type: "transcript",
             role: "user",
@@ -199,6 +213,10 @@ export const voiceSession = task(
           const name = String(event.name ?? "");
           const args =
             (event.args as Record<string, unknown> | undefined) ?? {};
+          logger.info(
+            { sessionId, callId, name, args },
+            "AssemblyAI tool.call"
+          );
           if (name !== "research") {
             assemblyWS.send(
               JSON.stringify({
@@ -236,6 +254,10 @@ export const voiceSession = task(
           }
           researchPromise
             .then((narration) => {
+              logger.info(
+                { sessionId, callId, narrationLen: narration.length },
+                "sending tool.result (success)"
+              );
               assemblyWS.send(
                 JSON.stringify({
                   type: "tool.result",
@@ -246,6 +268,10 @@ export const voiceSession = task(
             })
             .catch((err) => {
               logger.error({ err, sessionId, topic }, "research failed");
+              logger.info(
+                { sessionId, callId },
+                "sending tool.result (error)"
+              );
               assemblyWS.send(
                 JSON.stringify({
                   type: "tool.result",
@@ -313,9 +339,12 @@ async function runResearch(
     topic,
   });
 
+  logger.info({ sessionId, topic }, "runResearch: subscribing + dispatching");
+
   const briefingReady = new Promise<{ briefingId: string }>(
     (resolve, reject) => {
       const dispose = events.subscribe(sessionId, (e: PhaseEvent) => {
+        logger.info({ sessionId, kind: e.kind }, "phase event");
         switch (e.kind) {
           case "plan.ready":
             summary.plannedCount = e.queries.length;
@@ -337,16 +366,30 @@ async function runResearch(
     }
   );
 
-  // Fire research subtask in background (its own checkpointed tree of subtasks).
+  // Fire research subtask in background. If it throws BEFORE emitting
+  // workflow.failed (e.g., SDK fails to dispatch), we publish workflow.failed
+  // ourselves so briefingReady can reject and the voice handler doesn't hang.
   (async () => {
     try {
+      logger.info({ sessionId }, "runResearch: dispatching research subtask");
       await research(sessionId, topic);
+      logger.info({ sessionId }, "runResearch: research subtask returned");
     } catch (err) {
       logger.error({ err, sessionId }, "research subtask failed");
+      await events
+        .publish({
+          sessionId,
+          at: Date.now(),
+          kind: "workflow.failed",
+          runId: process.env.RENDER_TASK_RUN_ID ?? "unknown",
+          message: err instanceof Error ? err.message : String(err),
+        })
+        .catch(() => {});
     }
   })();
 
   const { briefingId } = await briefingReady;
+  logger.info({ sessionId, briefingId }, "runResearch: briefingReady");
   const briefing = await getBriefing(databaseUrl, briefingId);
   const body =
     briefing?.content ??
