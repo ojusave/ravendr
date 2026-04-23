@@ -3,10 +3,28 @@
 #
 # The Workflow service (ravendr-workflow) is created manually in the Render
 # dashboard — Blueprint support for the workflow service type is evolving.
-# Its slug must match WORKFLOW_SLUG below and it runs `npm run start:tasks`.
+# Its slug must match WORKFLOW_SLUG below. Start command: `node dist/render/tasks/index.js`
+#
+# Shared secrets live in the `ravendr-shared` env group so both services
+# pull from one source. Update in one place, both services pick it up.
 
 previews:
   generation: automatic
+
+envVarGroups:
+  - name: ravendr-shared
+    envVars:
+      - key: YOUCOM_API_KEY
+        displayName: You.com API key
+        description: "From https://you.com/platform"
+        sensitive: true
+        sync: false
+      - key: YOUCOM_BASE_URL
+        value: https://api.you.com/v1
+      - key: LOG_LEVEL
+        value: info
+      - key: NODE_VERSION
+        value: "22"
 
 services:
   - type: web
@@ -19,25 +37,17 @@ services:
     startCommand: node dist/server.js
     autoDeploy: true
     envVars:
-      - key: NODE_VERSION
-        value: "22"
-      - key: WORKFLOW_SLUG
-        displayName: Workflow slug
-        description: "Slug of your Render Workflow service (defaults to ravendr-workflow)."
-        value: ravendr-workflow
-      - key: RENDER_REGION
-        value: oregon
+      - fromGroup: ravendr-shared
+      # web-only: voice, dispatch, DB
       - key: DATABASE_URL
         fromDatabase:
           name: ravendr-db
           property: connectionString
-      - key: YOUCOM_API_KEY
-        displayName: You.com API key
-        description: "From https://you.com/platform"
-        sensitive: true
-        sync: false
-      - key: YOUCOM_BASE_URL
-        value: https://api.you.com/v1
+      - key: WORKFLOW_SLUG
+        displayName: Workflow slug
+        value: ravendr-workflow
+      - key: RENDER_REGION
+        value: oregon
       - key: ASSEMBLYAI_API_KEY
         displayName: AssemblyAI API key
         description: "From https://www.assemblyai.com/app"
@@ -52,8 +62,6 @@ services:
         description: "Used to dispatch workflow tasks. From https://dashboard.render.com/settings/api-keys"
         sensitive: true
         sync: false
-      - key: LOG_LEVEL
-        value: info
 
 databases:
   - name: ravendr-db
