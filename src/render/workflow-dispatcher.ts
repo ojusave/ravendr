@@ -17,6 +17,9 @@ export interface WorkflowDispatcher {
     taskToken: string,
     publicWebUrl: string
   ): Promise<string>;
+
+  /** Cancels a still-running task. Used by the session-cleanup daemon. */
+  cancelTaskRun(taskRunId: string): Promise<void>;
 }
 
 export function createWorkflowDispatcher(
@@ -43,6 +46,17 @@ export function createWorkflowDispatcher(
           "failed to dispatch voiceSession task",
           { cause: err }
         );
+      }
+    },
+
+    async cancelTaskRun(taskRunId) {
+      try {
+        await render.workflows.cancelTaskRun(taskRunId);
+        logger.info({ taskRunId }, "task run cancelled");
+      } catch (err) {
+        // Non-fatal: cancellation can race with natural completion. The
+        // cleanup daemon retries on next tick if still active.
+        logger.warn({ err, taskRunId }, "cancelTaskRun failed");
       }
     },
   };

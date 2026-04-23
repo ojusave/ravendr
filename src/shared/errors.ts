@@ -5,6 +5,7 @@
 export type ErrorCode =
   | "VALIDATION"
   | "NOT_FOUND"
+  | "AT_CAPACITY"
   | "UPSTREAM_VOICE"
   | "UPSTREAM_LLM"
   | "UPSTREAM_RESEARCH"
@@ -43,6 +44,8 @@ function defaultStatus(code: ErrorCode): number {
       return 400;
     case "NOT_FOUND":
       return 404;
+    case "AT_CAPACITY":
+      return 503;
     case "TIMEOUT":
       return 504;
     case "UPSTREAM_VOICE":

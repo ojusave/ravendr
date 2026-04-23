@@ -6,6 +6,10 @@ import { buildRoutes } from "./routes.js";
 import { createPostgresEventBus } from "./render/event-bus.js";
 import { createWorkflowDispatcher } from "./render/workflow-dispatcher.js";
 import { createSessionBroker } from "./render/session-broker.js";
+import {
+  listExpiredActiveSessions,
+  markSessionClosed,
+} from "./render/db.js";
 
 /**
  * Composition root for the web service.
@@ -36,7 +40,39 @@ async function main(): Promise<void> {
     dispatcher,
     broker,
     publicWebUrl: config.PUBLIC_WEB_URL,
+    maxConcurrentSessions: config.MAX_CONCURRENT_SESSIONS,
+    sessionLifetimeMinutes: config.SESSION_LIFETIME_MINUTES,
   });
+
+  // ── Session cleanup daemon ────────────────────────────────────────
+  // Every SESSION_PURGE_INTERVAL_MS, find sessions whose TTL passed but
+  // whose voiceSession task is still running; cancel the task, mark the
+  // session closed. Prevents slots from being stuck "active" forever if
+  // a browser tab was closed without a graceful disconnect.
+  let purgeStop = false;
+  const wait = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const sig = AbortSignal.timeout(ms);
+      if (sig.aborted) resolve();
+      else sig.addEventListener("abort", () => resolve(), { once: true });
+    });
+  (async function purgeLoop() {
+    while (!purgeStop) {
+      await wait(config.SESSION_PURGE_INTERVAL_MS);
+      if (purgeStop) break;
+      try {
+        const expired = await listExpiredActiveSessions(config.DATABASE_URL);
+        if (expired.length === 0) continue;
+        logger.info({ count: expired.length }, "purging expired sessions");
+        for (const { id, taskRunId } of expired) {
+          await dispatcher.cancelTaskRun(taskRunId);
+          await markSessionClosed(config.DATABASE_URL, id);
+        }
+      } catch (err) {
+        logger.error({ err }, "session purge tick failed");
+      }
+    }
+  })();
 
   const server = serve(
     { fetch: app.fetch, port: config.PORT },
@@ -78,6 +114,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     logger.info("shutting down");
+    purgeStop = true;
     await events.stop();
     server.close();
     process.exit(0);

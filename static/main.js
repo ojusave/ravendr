@@ -35,19 +35,33 @@ function setMicActive(on) {
   }
   statusEl?.classList.toggle("active", on);
   const timer = document.getElementById("session-timer");
-  if (timer) {
-    timer.classList.toggle("active", on);
-    if (on) {
-      const started = Date.now();
-      const tick = () => {
-        if (!timer.classList.contains("active")) return;
-        const s = Math.floor((Date.now() - started) / 1000);
-        timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-        requestAnimationFrame(() => setTimeout(tick, 500));
-      };
-      tick();
+  if (timer) timer.classList.toggle("active", on);
+}
+
+/**
+ * Countdown to the server-side session expiry. Frontend is just a
+ * display — the server's cleanup daemon is authoritative, so even if
+ * the clock drifts, expired sessions get cancelled server-side.
+ */
+function startExpiryCountdown(expiresAtMs) {
+  const timer = document.getElementById("session-timer");
+  if (!timer) return;
+  timer.classList.add("active");
+  const tick = () => {
+    if (!active) return;
+    const remainingMs = expiresAtMs - Date.now();
+    if (remainingMs <= 0) {
+      timer.textContent = "0:00";
+      timer.classList.add("expired");
+      setStatus("Session expired.");
+      stop();
+      return;
     }
-  }
+    const s = Math.floor(remainingMs / 1000);
+    timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    requestAnimationFrame(() => setTimeout(tick, 500));
+  };
+  tick();
 }
 
 const KIND_CLASS = {
@@ -312,14 +326,27 @@ async function start() {
 
   const startResp = await fetch("/api/start", { method: "POST" }).then((r) => r.json());
   if (startResp.error) {
-    setStatus(`Start failed: ${startResp.error.message}`);
+    const msg = startResp.error.message || "start failed";
+    setStatus(
+      startResp.error.code === "AT_CAPACITY"
+        ? "Demo is busy — try again in a minute."
+        : `Start failed: ${msg}`
+    );
     active = false;
     setMicActive(false);
     return;
   }
   const sessionId = startResp.data.sessionId;
   const runId = startResp.data.runId;
+  const expiresAt = startResp.data.expiresAt
+    ? new Date(startResp.data.expiresAt).getTime()
+    : null;
   log(`workflow dispatched · ${runId}`);
+
+  // Countdown timer in the header — hard-capped at SESSION_LIFETIME_MINUTES
+  // by the backend cleanup daemon. Show mm:ss remaining so users know their
+  // budget.
+  if (expiresAt) startExpiryCountdown(expiresAt);
 
   // If the task doesn't connect back in 15s, surface a clear error with
   // the runId so the user can jump straight to the Render task logs.

@@ -43,6 +43,13 @@ const WebSchema = BaseSchema.extend({
     .string()
     .url()
     .default("http://localhost:3000"),
+
+  // Session-management knobs. Ship with 100 cap per user's call; if we
+  // blow through provider limits at load, tune down.
+  MAX_CONCURRENT_SESSIONS: z.coerce.number().int().positive().default(100),
+  SESSION_LIFETIME_MINUTES: z.coerce.number().int().positive().default(15),
+  /** Cleanup daemon tick (ms). 60s is fine; no reason to scan faster. */
+  SESSION_PURGE_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 export type BaseConfig = z.infer<typeof BaseSchema>;

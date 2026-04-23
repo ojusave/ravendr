@@ -143,6 +143,11 @@
         display: none;
       }
       header .timer.active { display: inline-flex; }
+      header .timer.expired {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--red);
+        border-color: rgba(239, 68, 68, 0.3);
+      }
       header .actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
       .header-btn {
         font-size: 0.725rem;
