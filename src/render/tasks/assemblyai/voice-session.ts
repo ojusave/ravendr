@@ -1,15 +1,15 @@
 import { task } from "@renderinc/sdk/workflows";
 import { WebSocket } from "ws";
-import { loadWorkflowConfig } from "../../config.js";
-import { createPostgresEventBus } from "../event-bus.js";
-import { setSessionTopic, setSessionStatus, getBriefing } from "../db.js";
-import { logger } from "../../shared/logger.js";
-import type { PhaseEvent } from "../../shared/events.js";
+import { loadWorkflowConfig } from "../../../config.js";
+import { createPostgresEventBus } from "../../event-bus.js";
+import { setSessionTopic, setSessionStatus, getBriefing } from "../../db.js";
+import { logger } from "../../../shared/logger.js";
+import type { PhaseEvent } from "../../../shared/events.js";
 import {
   openVoiceAgent,
   type BrowserOutgoing,
-} from "../../assemblyai/voice-agent.js";
-import { research } from "./research.js";
+} from "../../../assemblyai/voice-agent.js";
+import { research } from "../research.js";
 
 /**
  * Root Render Workflow task: owns a voice session end-to-end.

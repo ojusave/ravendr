@@ -1,9 +1,9 @@
 import { task } from "@renderinc/sdk/workflows";
-import { loadWorkflowConfig } from "../../config.js";
-import { createPostgresEventBus } from "../event-bus.js";
-import { addSources, completeBriefing, setSessionStatus } from "../db.js";
-import { synthesizerAgent, type AskShape } from "../../mastra/agents.js";
-import type { BranchResult } from "./search-branch.js";
+import { loadWorkflowConfig } from "../../../config.js";
+import { createPostgresEventBus } from "../../event-bus.js";
+import { addSources, completeBriefing, setSessionStatus } from "../../db.js";
+import { synthesizerAgent, type AskShape } from "../../../mastra/agents.js";
+import type { BranchResult } from "../youcom/search-branch.js";
 
 export interface SynthesizeResult {
   briefingId: string;

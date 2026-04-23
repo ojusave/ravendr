@@ -1,18 +1,20 @@
 /**
  * Workflow task entry-point. `npm run start:tasks` runs this file; the
- * @renderinc/sdk picks up exported tasks and registers them with Render.
+ * @renderinc/sdk auto-registers every exported task with Render.
  *
- * Tree:
- *   voiceSession (root, long-lived — owns the AssemblyAI session)
- *     └─ research (subtask — composes the pipeline)
- *          ├─ plan_queries (leaf)
- *          ├─ search_branch (leaf × N parallel)
- *          └─ synthesize (leaf)
+ * Tasks are grouped by the vendor they primarily integrate with:
+ *
+ *   assemblyai/  — owns the Voice Agent WebSocket
+ *   mastra/      — all LLM-driven reasoning (classify, plan, synth, verify)
+ *   youcom/      — fans out research calls
+ *
+ * research.ts at the root is vendor-neutral — it's the pure Render
+ * Workflows orchestration that composes the above.
  */
-export { voiceSession } from "./voice-session.js";
+export { voiceSession } from "./assemblyai/voice-session.js";
 export { research } from "./research.js";
-export { classify_ask } from "./classify-ask.js";
-export { plan_queries } from "./plan-queries.js";
-export { search_branch } from "./search-branch.js";
-export { synthesize } from "./synthesize.js";
-export { verify } from "./verify.js";
+export { classify_ask } from "./mastra/classify-ask.js";
+export { plan_queries } from "./mastra/plan-queries.js";
+export { synthesize } from "./mastra/synthesize.js";
+export { verify } from "./mastra/verify.js";
+export { search_branch } from "./youcom/search-branch.js";

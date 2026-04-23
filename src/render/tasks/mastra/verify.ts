@@ -1,9 +1,9 @@
 import { task } from "@renderinc/sdk/workflows";
 import { z } from "zod";
-import { loadWorkflowConfig } from "../../config.js";
-import { createPostgresEventBus } from "../event-bus.js";
-import { logger } from "../../shared/logger.js";
-import { verifierAgent, type AskShape } from "../../mastra/agents.js";
+import { loadWorkflowConfig } from "../../../config.js";
+import { createPostgresEventBus } from "../../event-bus.js";
+import { logger } from "../../../shared/logger.js";
+import { verifierAgent, type AskShape } from "../../../mastra/agents.js";
 
 export interface VerifyResult {
   passes: boolean;

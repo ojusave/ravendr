@@ -1,8 +1,8 @@
 import { task } from "@renderinc/sdk/workflows";
-import { loadWorkflowConfig } from "../../config.js";
-import { createPostgresEventBus } from "../event-bus.js";
-import { createYouComResearch } from "../../youcom/research.js";
-import type { Tier } from "../../shared/events.js";
+import { loadWorkflowConfig } from "../../../config.js";
+import { createPostgresEventBus } from "../../event-bus.js";
+import { createYouComResearch } from "../../../youcom/research.js";
+import type { Tier } from "../../../shared/events.js";
 
 export interface BranchResult {
   angle: string;

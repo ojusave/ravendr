@@ -87,12 +87,17 @@ src/
     session-broker.ts                   pairs /ws/client with /ws/task
     workflow-dispatcher.ts              @renderinc/sdk wrapper
     tasks/
-      voice-session.ts                  ROOT task — holds AssemblyAI + reverse WS
-      research.ts                       orchestrates plan → search → synth → verify
-      plan-queries.ts                   uses mastra/agents.ts plannerAgent()
-      search-branch.ts                  uses youcom/research.ts (× N parallel)
-      synthesize.ts                     uses mastra/agents.ts synthesizerAgent()
-      verify.ts                         uses mastra/agents.ts verifierAgent()
+      index.ts                          auto-registers every task with Render
+      research.ts                       ROOT orchestrator (pure Render Workflows)
+      assemblyai/
+        voice-session.ts                holds AssemblyAI WS + reverse WS
+      mastra/
+        classify-ask.ts                 ask-shape classifier
+        plan-queries.ts                 shape-aware planner
+        synthesize.ts                   shape-aware synthesizer
+        verify.ts                       shape-aware verifier + 1-retry
+      youcom/
+        search-branch.ts                one You.com call (× N parallel)
   shared/                               ports + events + envelope + errors + logger
 
 static/                                 vanilla ES modules (index.html + main.js + mic.js)
