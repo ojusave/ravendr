@@ -12,7 +12,11 @@ export interface WorkflowDispatcher {
    * Starts the voiceSession task run. The task opens AssemblyAI and its
    * reverse WS back to this web service. Returns the Render taskRunId.
    */
-  startVoiceSession(sessionId: string, taskToken: string): Promise<string>;
+  startVoiceSession(
+    sessionId: string,
+    taskToken: string,
+    publicWebUrl: string
+  ): Promise<string>;
 }
 
 export function createWorkflowDispatcher(
@@ -22,11 +26,11 @@ export function createWorkflowDispatcher(
   const render = new Render();
 
   return {
-    async startVoiceSession(sessionId, taskToken) {
+    async startVoiceSession(sessionId, taskToken, publicWebUrl) {
       try {
         const started = await render.workflows.startTask(
           `${config.workflowSlug}/voiceSession`,
-          [sessionId, taskToken]
+          [sessionId, taskToken, publicWebUrl]
         );
         const runId = started.taskRunId;
         if (!runId) throw new AppError("UPSTREAM_WORKFLOW", "missing taskRunId");

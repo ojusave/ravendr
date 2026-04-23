@@ -19,6 +19,8 @@ export interface RoutesDeps {
   events: EventBus;
   dispatcher: WorkflowDispatcher;
   broker: SessionBroker;
+  /** Optional override — used when Render doesn't inject RENDER_EXTERNAL_URL (local dev). */
+  publicWebUrl?: string;
 }
 
 /**
@@ -36,7 +38,19 @@ export function buildRoutes(deps: RoutesDeps): Hono {
       const session = await createSession(deps.databaseUrl, null);
       const sessionId = session.id;
       const token = deps.broker.issueToken(sessionId);
-      const runId = await deps.dispatcher.startVoiceSession(sessionId, token);
+
+      // Prefer Render's auto-set public URL; fall back to PUBLIC_WEB_URL, then
+      // derive from the incoming request host (handy for local dev / previews).
+      const publicWebUrl =
+        process.env.RENDER_EXTERNAL_URL ??
+        deps.publicWebUrl ??
+        inferUrlFromRequest(c);
+
+      const runId = await deps.dispatcher.startVoiceSession(
+        sessionId,
+        token,
+        publicWebUrl
+      );
       return c.json(ok({ sessionId, runId }));
     } catch (err) {
       return respondError(c, err);
@@ -86,4 +100,12 @@ function respondError(c: Context, err: unknown) {
   logger.warn({ err: appErr }, "request failed");
   c.status(appErr.status as 400 | 404 | 500 | 502 | 504);
   return c.json(fail(appErr));
+}
+
+function inferUrlFromRequest(c: Context): string {
+  const host = c.req.header("host") ?? "localhost:3000";
+  const proto =
+    c.req.header("x-forwarded-proto") ??
+    (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
 }

@@ -35,6 +35,7 @@ async function main(): Promise<void> {
     events,
     dispatcher,
     broker,
+    publicWebUrl: config.PUBLIC_WEB_URL,
   });
 
   const server = serve(

@@ -71,14 +71,14 @@ export const voiceSession = task(
   },
   async function voiceSession(
     sessionId: string,
-    taskToken: string
+    taskToken: string,
+    publicWebUrl: string
   ): Promise<{ status: "closed" }> {
-    logger.info({ sessionId }, "voiceSession: start");
+    logger.info({ sessionId, publicWebUrl }, "voiceSession: start");
     const config = loadWorkflowConfig();
 
-    // Validation: require PUBLIC_WEB_URL + ASSEMBLYAI_* in workflow env.
-    const webUrl = process.env.PUBLIC_WEB_URL;
-    if (!webUrl) throw new Error("PUBLIC_WEB_URL not set");
+    const webUrl = publicWebUrl;
+    if (!webUrl) throw new Error("publicWebUrl not provided by dispatcher");
     const assemblyKey = process.env.ASSEMBLYAI_API_KEY;
     if (!assemblyKey) throw new Error("ASSEMBLYAI_API_KEY not set");
     const assemblyAgentUrl =
