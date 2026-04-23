@@ -243,6 +243,37 @@
       .orb-status.active { color: var(--render-purple); }
       .orb-status.error { color: var(--red); }
 
+      /* ── Elbow brackets (gradient-bang inspired HUD flourish) ─── */
+      .elbow {
+        --elbow-size: 10px;
+        --elbow-offset: -1px;
+        --elbow-width: 2px;
+        --elbow-color: var(--text-dim);
+        position: relative;
+      }
+      .elbow::before,
+      .elbow::after {
+        content: "";
+        position: absolute;
+        width: var(--elbow-size);
+        height: var(--elbow-size);
+        border: 0 solid var(--elbow-color);
+        pointer-events: none;
+      }
+      .elbow::before {
+        top: var(--elbow-offset);
+        left: var(--elbow-offset);
+        border-top-width: var(--elbow-width);
+        border-left-width: var(--elbow-width);
+      }
+      .elbow::after {
+        bottom: var(--elbow-offset);
+        right: var(--elbow-offset);
+        border-bottom-width: var(--elbow-width);
+        border-right-width: var(--elbow-width);
+      }
+      .elbow.elbow-accent { --elbow-color: var(--render-purple); }
+
       /* ── Chain ribbon ───────────────────────────────────── */
       .ribbon {
         width: 100%;
@@ -339,7 +370,15 @@
         text-align: center;
         color: var(--text-dim);
         font-size: 0.8rem;
-        padding: 1.5rem 0;
+        padding: 2rem 0.75rem;
+        /* Stripe frame for idle panels (gradient-bang inspired) */
+        background-image: repeating-linear-gradient(
+          -45deg,
+          transparent 0,
+          transparent 10px,
+          var(--overlay-subtle) 10px,
+          var(--overlay-subtle) 11px
+        );
       }
 
       /* Bubble transcripts */
@@ -404,6 +443,16 @@
         flex-shrink: 0;
       }
       .line .msg { flex: 1; line-height: 1.5; color: var(--text); }
+      .line .count {
+        font-size: 0.65rem;
+        padding: 0 0.35rem;
+        color: var(--render-purple);
+        border: 1px solid var(--render-purple);
+        font-variant-numeric: tabular-nums;
+        flex-shrink: 0;
+        align-self: flex-start;
+        margin-top: 2px;
+      }
 
       /* ── Briefing ───────────────────────────────────────── */
       .briefing {
@@ -524,14 +573,14 @@
         </div>
         <div class="orb-status" id="status">Tap to begin</div>
 
-        <div class="ribbon" id="ribbon">
+        <div class="ribbon elbow" id="ribbon">
           <div class="node" data-lane="render"><div class="dot"></div><div class="label">Render Workflows</div><div class="sub" data-field="sub">dispatch · orchestrate</div></div>
           <div class="node" data-lane="assembly"><div class="dot"></div><div class="label">AssemblyAI</div><div class="sub" data-field="sub">voice i/o</div></div>
           <div class="node" data-lane="mastra"><div class="dot"></div><div class="label">Mastra</div><div class="sub" data-field="sub">agent + LLM</div></div>
           <div class="node" data-lane="youcom"><div class="dot"></div><div class="label">You.com</div><div class="sub" data-field="sub">research</div></div>
         </div>
 
-        <div class="panel">
+        <div class="panel elbow">
           <div class="panel-header" id="feed-header">
             <span class="spinner"></span>
             <span class="label" id="feed-label">Activity</span>
@@ -541,7 +590,7 @@
           </div>
         </div>
 
-        <div class="briefing" id="briefing">
+        <div class="briefing elbow elbow-accent" id="briefing">
           <h3 id="briefing-topic"></h3>
           <div class="body" id="briefing-body"></div>
           <div class="sources">

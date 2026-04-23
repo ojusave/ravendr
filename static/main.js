@@ -95,11 +95,36 @@ function chatBubble(role, text, mode) {
 
 function log(line, event) {
   clearEmptyState();
-  const el = document.createElement("div");
   const kindClass = event?.kind ? KIND_CLASS[event.kind] ?? "" : "";
+  const kind = event?.kind ?? "";
+
+  // Stack consecutive same-kind events. E.g. five youcom.call.started
+  // firing nearly-simultaneously collapse into one line with "× 5".
+  const last = logEl.lastElementChild;
+  if (last?.classList.contains("line") && last.dataset.kind === kind && kind) {
+    const count = Number(last.dataset.count ?? "1") + 1;
+    last.dataset.count = String(count);
+    let badge = last.querySelector(".count");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "count";
+      last.appendChild(badge);
+    }
+    badge.textContent = `× ${count}`;
+    // Update message to the latest (captures updated detail like "3 of 5 done")
+    const msg = last.querySelector(".msg");
+    if (msg) msg.textContent = line;
+    logEl.scrollTop = logEl.scrollHeight;
+    return;
+  }
+
+  const el = document.createElement("div");
   el.className = `line ${kindClass}`.trim();
+  el.dataset.kind = kind;
+  el.dataset.count = "1";
   const stamp = new Date(event?.at ?? Date.now()).toLocaleTimeString();
-  el.innerHTML = `<span class="indicator"></span><span class="stamp">${stamp}</span><span class="msg">${line}</span>`;
+  el.innerHTML = `<span class="indicator"></span><span class="stamp">${stamp}</span><span class="msg"></span>`;
+  el.querySelector(".msg").textContent = line;
   logEl.appendChild(el);
   logEl.scrollTop = logEl.scrollHeight;
 }
