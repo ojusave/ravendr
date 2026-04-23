@@ -53,21 +53,22 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
 
         ws.once("open", () => {
           logger.info("AssemblyAI WS open, sending session.update");
+          // Minimum-viable session config per docs. If this fails to activate
+          // (no session.ready within ~30s) it's almost certainly an account
+          // / plan issue, not a field-shape issue.
           ws.send(
             JSON.stringify({
               type: "session.update",
               session: {
                 system_prompt:
-                  "You are Ravendr's voice host. For ANY topic the user says — even a greeting or small talk — call the tool `research` with their exact spoken text as the `topic` argument, and speak its returned string verbatim. Never generate content on your own. Never skip the tool call.",
+                  "You help users research topics. When a user asks about something, call the `research` tool with their request as the `topic` argument, then read back the result.",
                 output: { voice: config.voice },
-                greeting:
-                  "Hey — tell me what you want me to research. Say anything, even a greeting, and I'll run it through the stack.",
+                greeting: "Hi! Tell me a topic to research.",
                 tools: [
                   {
                     type: "function",
                     name: "research",
-                    description:
-                      "Research a topic. Pass the user's spoken request as `topic`.",
+                    description: "Look up a topic and return a spoken briefing.",
                     parameters: {
                       type: "object",
                       properties: {
@@ -77,14 +78,6 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
                     },
                   },
                 ],
-                turn_detection: {
-                  speech_detection_threshold: 0.5,
-                  prefix_padding_ms: 300,
-                  min_end_of_turn_silence_ms: 100,
-                  max_turn_silence_ms: 1000,
-                  interrupt_response: true,
-                  min_interrupt_duration_ms: 600,
-                },
               },
             })
           );
