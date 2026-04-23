@@ -83,7 +83,7 @@ Open `http://localhost:3000`, grant mic permission, tap, and say a topic.
 
 1. **Fork** this repo.
 2. Click **Deploy to Render** — the Blueprint provisions `ravendr-web` and `ravendr-db`.
-3. **Create a Workflow service** (`ravendr-tasks`) manually in the dashboard, pointing at the same repo, using start command `node dist/render/tasks/index.js`. Set the same env group as the web service.
+3. **Create a Workflow service** (`ravendr-workflow`) manually in the dashboard, pointing at the same repo, using start command `node dist/render/tasks/index.js`. Set the same env group as the web service.
 4. Set the three secrets (`YOUCOM_API_KEY`, `ASSEMBLYAI_API_KEY`, `RENDER_API_KEY`) on both services.
 5. Migrations run automatically on each deploy via `preDeployCommand: npm run migrate`. No manual step.
 

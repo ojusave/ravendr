@@ -1,7 +1,7 @@
 # Ravendr v2 — voice-first research demo on
 #   AssemblyAI (voice) · Render (compute + DB) · Mastra (agents) · You.com (research)
 #
-# The Workflow service (ravendr-tasks) is created manually in the Render
+# The Workflow service (ravendr-workflow) is created manually in the Render
 # dashboard — Blueprint support for the workflow service type is evolving.
 # Its slug must match WORKFLOW_SLUG below and it runs `npm run start:tasks`.
 
@@ -23,8 +23,8 @@ services:
         value: "22"
       - key: WORKFLOW_SLUG
         displayName: Workflow slug
-        description: "Slug of your Render Workflow service (defaults to ravendr-tasks)."
-        value: ravendr-tasks
+        description: "Slug of your Render Workflow service (defaults to ravendr-workflow)."
+        value: ravendr-workflow
       - key: RENDER_REGION
         value: oregon
       - key: DATABASE_URL

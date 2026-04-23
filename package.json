@@ -12,6 +12,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "start:tasks": "node dist/render/tasks/index.js",
+    "tasks": "node dist/render/tasks/index.js",
     "migrate": "tsx scripts/migrate.ts",
     "typecheck": "tsc --noEmit"
   },
