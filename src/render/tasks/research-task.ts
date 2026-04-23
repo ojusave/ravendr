@@ -51,7 +51,6 @@ export const research = task(
           research: yresearch,
           events,
           databaseUrl: config.DATABASE_URL,
-          anthropicApiKey: config.ANTHROPIC_API_KEY,
           anthropicModel: config.ANTHROPIC_MODEL,
         }
       );

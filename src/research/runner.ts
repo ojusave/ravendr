@@ -1,7 +1,6 @@
 import type { EventBus, ResearchProvider } from "../shared/ports.js";
 import { createBriefing, setSessionStatus } from "../render/db.js";
-import { getMastraMemory, threadForSession } from "../mastra/memory.js";
-import { createBriefingWorkflow } from "./workflow.js";
+import { createResearchAgent } from "./agent.js";
 import { logger } from "../shared/logger.js";
 import { AppError } from "../shared/errors.js";
 
@@ -9,7 +8,6 @@ export interface RunBriefingPorts {
   research: ResearchProvider;
   events: EventBus;
   databaseUrl: string;
-  anthropicApiKey: string;
   anthropicModel: string;
 }
 
@@ -21,12 +19,11 @@ export interface RunBriefingArgs {
 }
 
 /**
- * Thin wrapper around the Mastra workflow.
+ * Runs the Mastra Agent research loop inside a Render Workflow task.
  *
- *   1. Create the briefing row so we have an id to thread through.
- *   2. Spin up a Mastra workflow (plan → search → synthesize) and run it.
- *   3. On failure, mark the session and emit workflow.failed.
- *   4. Best-effort Mastra memory write for cross-session continuity.
+ * The agent autonomously calls plan_queries → search_web (parallel per
+ * query) → write_briefing. Each tool publishes phase events that the voice
+ * polling loop consumes for live narration.
  */
 export async function runBriefing(
   args: RunBriefingArgs,
@@ -34,37 +31,41 @@ export async function runBriefing(
 ): Promise<{ briefingId: string; sourceCount: number }> {
   const { sessionId, topic, runId } = args;
 
-  const briefingId = await createBriefing(ports.databaseUrl, sessionId, topic, runId);
+  const briefingId = await createBriefing(
+    ports.databaseUrl,
+    sessionId,
+    topic,
+    runId
+  );
 
-  const workflow = createBriefingWorkflow(ports);
+  const agent = createResearchAgent({
+    research: ports.research,
+    events: ports.events,
+    databaseUrl: ports.databaseUrl,
+    anthropicModel: ports.anthropicModel,
+    sessionId,
+    briefingId,
+  });
 
   try {
-    const run = await workflow.createRun();
-    const result = await run.start({
-      inputData: { sessionId, topic, runId, briefingId },
-    });
-
-    // Mastra's run result shape varies slightly; accept either the output
-    // directly or nested under `result` / `output`.
-    const out =
-      (result as { output?: unknown; result?: unknown } | undefined)?.output ??
-      (result as { result?: unknown })?.result ??
-      result;
-
-    const typed = out as { briefingId?: string; sourceCount?: number };
-    if (!typed?.briefingId) {
-      throw new Error("workflow completed without a briefingId");
-    }
-
-    // ── Best-effort memory write for future sessions ────────────────
-    writeMemorySummary(ports.databaseUrl, sessionId, topic).catch((err) =>
-      logger.warn({ err }, "mastra memory write failed")
+    const result = await agent.generate(
+      `Research this topic for me: ${topic}`,
+      { maxSteps: 20 }
     );
 
-    return {
-      briefingId: typed.briefingId,
-      sourceCount: typed.sourceCount ?? 0,
-    };
+    // write_briefing is what persists and emits briefing.ready. If the agent
+    // didn't call it (misbehavior), fall back to whatever text it returned.
+    const writeBriefingResult = findWriteBriefingResult(result);
+    if (writeBriefingResult) {
+      return writeBriefingResult;
+    }
+
+    // Fallback: agent returned text without calling write_briefing.
+    logger.warn(
+      { sessionId, topic },
+      "agent skipped write_briefing — using free-form text"
+    );
+    throw new Error("Agent did not call write_briefing");
   } catch (err) {
     logger.error({ err, sessionId }, "runBriefing failed");
     await setSessionStatus(ports.databaseUrl, sessionId, "error").catch(() => {});
@@ -81,27 +82,27 @@ export async function runBriefing(
   }
 }
 
-async function writeMemorySummary(
-  databaseUrl: string,
-  sessionId: string,
-  topic: string
-): Promise<void> {
-  let memory: ReturnType<typeof getMastraMemory> | null;
-  try {
-    memory = getMastraMemory({ databaseUrl });
-  } catch {
-    return;
-  }
-  const threadId = threadForSession(sessionId, "researcher");
-  const summary = `User researched topic "${topic}" at ${new Date().toISOString()}.`;
-  // Best-effort: Mastra's memory API varies by version. Try common shapes.
-  const m = memory as unknown as {
-    saveMessage?: (args: { threadId: string; content: string; role: string }) => Promise<unknown>;
-    addMessage?: (args: { threadId: string; content: string; role: string }) => Promise<unknown>;
+/**
+ * Mastra's generate() result includes a `toolResults` array. Find the
+ * write_briefing entry and return its output.
+ */
+function findWriteBriefingResult(
+  result: unknown
+): { briefingId: string; sourceCount: number } | null {
+  const r = result as {
+    toolResults?: Array<{ toolName?: string; result?: unknown }>;
   };
-  if (typeof m.saveMessage === "function") {
-    await m.saveMessage({ threadId, content: summary, role: "system" });
-  } else if (typeof m.addMessage === "function") {
-    await m.addMessage({ threadId, content: summary, role: "system" });
+  if (!Array.isArray(r?.toolResults)) return null;
+  for (const t of r.toolResults) {
+    if (t.toolName === "write_briefing") {
+      const out = t.result as { briefingId?: string; sourceCount?: number };
+      if (out?.briefingId) {
+        return {
+          briefingId: out.briefingId,
+          sourceCount: out.sourceCount ?? 0,
+        };
+      }
+    }
   }
+  return null;
 }

@@ -6,6 +6,7 @@ import type {
   EventBus,
 } from "../shared/ports.js";
 import type { WorkflowDispatcher } from "../render/workflow-dispatcher.js";
+import type { PhaseEvent } from "../shared/events.js";
 import {
   setSessionTopic,
   setSessionStatus,
@@ -16,22 +17,24 @@ import { logger } from "../shared/logger.js";
 /**
  * Bridges a browser WebSocket to an AssemblyAI VoiceSession.
  *
- * Architecture note — why a single tool:
- *   AssemblyAI's Voice Agent has no server-initiated speech API. The agent
- *   speaks only when *its* LLM decides to, typically after a tool return.
- *   Chaining multiple tools with "speak between each" is unreliable — the
- *   model either batches them in parallel or silently skips the verbalization.
+ * Voice architecture — polling loop for live narration:
  *
- *   So: ONE tool, `research(topic)`, blocks until the Render Workflow has
- *   produced a briefing (~2 min), and returns a single narrated string
- *   covering the whole run (what Render did, what Mastra planned, what
- *   You.com fetched, the briefing itself). The model has one return to speak
- *   and it speaks it.
+ *   The AssemblyAI Voice Agent has no server-push speech primitive. Tool
+ *   returns are context the LLM uses to generate a spoken reply. So we give
+ *   the agent TWO tools and tell it to loop:
  *
- *   Real-time feedback during the wait comes from the visual chain ribbon +
- *   activity log, wired via SSE at /api/sessions/:id/events. The UI is the
- *   narration while the research runs; the voice is the payoff at the end.
+ *     research_start(topic)  — kicks off the Mastra Agent inside a Render
+ *                              Workflow task. Returns the first narration.
+ *     next_update()          — blocks up to 30 s for the next phase event
+ *                              pushed by the backend. Returns structured data
+ *                              with a `narrate` hint. Returns {done:true,
+ *                              briefing} when the run is finished.
+ *
+ *   The agent's system prompt tells it to keep calling next_update after
+ *   each narration until done. That turns backend phase events into a live
+ *   voice commentary track — one consistent AssemblyAI voice, no silence.
  */
+
 export interface WireOpts {
   browser: BrowserWS;
   sessionId: string;
@@ -44,9 +47,9 @@ export interface WireOpts {
 const TOOLS: VoiceToolDef[] = [
   {
     type: "function",
-    name: "research",
+    name: "research_start",
     description:
-      "Research a topic end-to-end. Blocks for up to a few minutes while the backend runs, then returns a narrated briefing the agent reads aloud verbatim.",
+      "Start the research workflow for a topic. Returns an opening line under `narrate` to say to the user, and a hint to call next_update repeatedly for progress.",
     parameters: {
       type: "object",
       properties: {
@@ -58,18 +61,50 @@ const TOOLS: VoiceToolDef[] = [
       required: ["topic"],
     },
   },
+  {
+    type: "function",
+    name: "next_update",
+    description:
+      "Block up to 30 seconds for the next backend progress event. Returns { narrate, ... } describing what just happened, or { done: true, briefing } when the briefing is ready. KEEP CALLING THIS UNTIL done:true.",
+    parameters: { type: "object", properties: {} },
+  },
 ];
 
-const SYSTEM_PROMPT = `You are Ravendr, a voice research host.
+const SYSTEM_PROMPT = `You are Ravendr, a voice research host. You narrate live what the backend is doing while it researches a topic.
 
-When the user gives you a topic (any topic, even a greeting), you MUST call the \`research\` tool with their exact words as the \`topic\` argument. Do this immediately — do not ask follow-up questions.
+When the user gives you a topic, follow this loop:
 
-The \`research\` tool takes a minute or two to return. That is expected. When it returns, the result is a narrated briefing written in first person — YOU speak it out loud to the user, verbatim, in full. Do not paraphrase, summarize, or shorten it. Do not add commentary before or after. Just read the returned text as your spoken reply.
+1. Call research_start(topic="<the user's exact words>"). The result has a \`narrate\` field — say that to the user in first person, in your own voice. This kicks off Render's workflow and Mastra's agent.
 
-After speaking the briefing, stop. Do not call the tool again unless the user asks for a new topic.`;
+2. Call next_update(). Each response has a \`narrate\` field describing what just happened in the backend (Mastra planned queries, a You.com call came back, etc). Say the narrate text to the user naturally — do NOT read the JSON, do NOT paraphrase beyond style, just speak about what happened. Then call next_update() again.
+
+3. Keep looping. Do NOT stop early. Do NOT skip calling next_update after speaking. The loop is what makes the voice live.
+
+4. When next_update returns { done: true, briefing }, read the briefing aloud in full. Then stop — don't call next_update again.
+
+Rules:
+- Always speak between tool calls. Never call two tools back-to-back without saying something.
+- Don't ask the user follow-up questions. Don't apologize. Don't summarize what you're about to do. Just narrate what's happening.
+- If next_update returns { phase: "heartbeat" }, say something brief and casual ("still working…") and call next_update again.
+- If next_update returns { phase: "error" }, tell the user what failed and stop.`;
 
 const GREETING =
-  "Hi — tell me any topic and I'll research it live. You'll see the stack working on screen while I dig in, then I'll read you back what I found.";
+  "Hi — tell me any topic and I'll research it live. I'll narrate the stack working as it goes, then read you the briefing when it's done.";
+
+interface NarrationPayload {
+  phase:
+    | "started"
+    | "planned"
+    | "search_progress"
+    | "synthesizing"
+    | "done"
+    | "error"
+    | "heartbeat";
+  narrate: string;
+  [key: string]: unknown;
+}
+
+const HEARTBEAT_MS = 30_000;
 
 export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   const { browser, sessionId, voice, events, dispatcher, databaseUrl } = opts;
@@ -77,71 +112,164 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   let session: VoiceSession | null = null;
   const abort = new AbortController();
 
-  // Memoize: the agent may call `research` once, but we also fire it as a
-  // fallback from the first final user transcript. Both paths share one run.
-  let researchPromise: Promise<string> | null = null;
+  // ── Narration queue and one-shot dispatch state ──────────────────────
+  const queue: NarrationPayload[] = [];
+  const waiters: Array<(n: NarrationPayload) => void> = [];
+  let dispatched = false;
+  let unsubscribe: (() => void) | null = null;
+  let seenBranches = 0;
+  let totalBranches = 0;
 
-  async function research(rawTopic: string): Promise<string> {
-    if (researchPromise) return researchPromise;
-    researchPromise = (async () => {
-      const topic = rawTopic.trim();
-      if (!topic) return "I didn't catch a topic — can you say it again?";
+  function push(n: NarrationPayload): void {
+    const waiter = waiters.shift();
+    if (waiter) waiter(n);
+    else queue.push(n);
+  }
 
-      // Collect phase data as events fly by so we can narrate in past tense.
-      const collected = {
-        runId: null as string | null,
-        plannedCount: 0,
-        angles: [] as string[],
-        branchesComplete: 0,
-        totalSources: 0,
+  function nextNarration(): Promise<NarrationPayload> {
+    return new Promise((resolve) => {
+      const queued = queue.shift();
+      if (queued) return resolve(queued);
+
+      const timer = setTimeout(() => {
+        const idx = waiters.indexOf(onPush);
+        if (idx >= 0) waiters.splice(idx, 1);
+        resolve({
+          phase: "heartbeat",
+          narrate: "Still working — just give it a moment.",
+        });
+      }, HEARTBEAT_MS);
+
+      const onPush = (n: NarrationPayload) => {
+        clearTimeout(timer);
+        resolve(n);
       };
+      waiters.push(onPush);
+    });
+  }
 
-      const unsubscribe = events.subscribe(sessionId, (e) => {
-        if (e.kind === "plan.ready") {
-          collected.plannedCount = e.queries.length;
-          collected.angles = e.queries.map((q) => q.angle);
-        } else if (e.kind === "youcom.call.completed") {
-          collected.branchesComplete += 1;
-          collected.totalSources += e.sourceCount;
-        }
+  function classify(e: PhaseEvent): NarrationPayload | null {
+    switch (e.kind) {
+      case "workflow.started":
+        return {
+          phase: "started",
+          narrate:
+            "Render's workflow runner just picked up the job — the Mastra agent is starting up inside it.",
+        };
+      case "plan.ready": {
+        totalBranches = e.queries.length;
+        const angles = e.queries.map((q) => q.angle);
+        return {
+          phase: "planned",
+          queries_count: e.queries.length,
+          angles,
+          narrate: `Mastra's agent planned ${e.queries.length} parallel queries — covering ${formatList(angles)}. Firing them off to You.com now.`,
+        };
+      }
+      case "youcom.call.completed":
+        seenBranches += 1;
+        return {
+          phase: "search_progress",
+          completed: seenBranches,
+          total: totalBranches,
+          new_sources: e.sourceCount,
+          latency_ms: e.latencyMs,
+          tier: e.tier,
+          narrate: `A You.com ${e.tier} call just came back — ${e.sourceCount} sources in ${Math.round(e.latencyMs / 1000)} seconds. That's ${seenBranches} of ${totalBranches || "?"} done.`,
+        };
+      case "agent.synthesizing":
+        return {
+          phase: "synthesizing",
+          narrate:
+            "All the You.com calls are in. Mastra's agent is weaving the briefing together now — one moment.",
+        };
+      case "workflow.failed":
+        return {
+          phase: "error",
+          message: e.message,
+          narrate: `Something went wrong — the workflow failed with: ${e.message.slice(0, 120)}.`,
+        };
+      default:
+        return null;
+    }
+  }
+
+  async function research_start(rawTopic: string): Promise<NarrationPayload> {
+    const topic = rawTopic.trim();
+    if (!topic) {
+      return {
+        phase: "error",
+        narrate: "I didn't catch a topic — can you say it again?",
+      };
+    }
+    if (dispatched) {
+      return {
+        phase: "started",
+        narrate:
+          "Already researching — give it a second and I'll tell you what's happening.",
+      };
+    }
+    dispatched = true;
+
+    try {
+      await setSessionTopic(databaseUrl, sessionId, topic);
+      await setSessionStatus(databaseUrl, sessionId, "researching");
+      await events.publish({
+        sessionId,
+        at: Date.now(),
+        kind: "session.started",
+        topic,
       });
 
-      try {
-        await setSessionTopic(databaseUrl, sessionId, topic);
-        await setSessionStatus(databaseUrl, sessionId, "researching");
-        await events.publish({
-          sessionId,
-          at: Date.now(),
-          kind: "session.started",
-          topic,
-        });
+      // Subscribe BEFORE dispatching so we don't miss early events.
+      unsubscribe = events.subscribe(sessionId, (e) => {
+        if (e.kind === "briefing.ready") {
+          // Resolve with the full briefing text so the model reads it.
+          getBriefing(databaseUrl, e.briefingId)
+            .then((b) => {
+              push({
+                phase: "done",
+                briefing:
+                  b?.content ??
+                  "The briefing finished but the content didn't come through.",
+                narrate: b?.content ?? "Here's what I found.",
+              });
+            })
+            .catch(() => {
+              push({
+                phase: "error",
+                narrate: "Couldn't load the finished briefing.",
+              });
+            });
+          return;
+        }
+        const n = classify(e);
+        if (n) push(n);
+      });
 
-        const runId = await dispatcher.dispatchResearch({ sessionId, topic });
-        collected.runId = runId;
-        await events.publish({
-          sessionId,
-          at: Date.now(),
-          kind: "workflow.dispatched",
-          runId,
-        });
+      const runId = await dispatcher.dispatchResearch({ sessionId, topic });
+      await events.publish({
+        sessionId,
+        at: Date.now(),
+        kind: "workflow.dispatched",
+        runId,
+      });
 
-        // Block until briefing.ready, with a wide timeout (workflow is slow).
-        const briefingEvent = await waitForBriefing(events, sessionId, 300_000);
-        const briefing = await getBriefing(databaseUrl, briefingEvent.briefingId);
-        const body =
-          briefing?.content ??
-          "I got the sources back but couldn't synthesize them cleanly — try again in a moment.";
-
-        return composeNarration(topic, collected, body);
-      } catch (err) {
-        logger.error({ err, sessionId, topic }, "research tool failed");
-        researchPromise = null;
-        return "I hit an issue running the research workflow. Give it another try in a moment.";
-      } finally {
-        unsubscribe();
-      }
-    })();
-    return researchPromise;
+      return {
+        phase: "started",
+        topic,
+        run_id: runId,
+        narrate: `Okay — researching ${topic}. I just dispatched a Render workflow for this. I'll tell you each step as it happens.`,
+      };
+    } catch (err) {
+      logger.error({ err, sessionId, topic }, "research_start failed");
+      dispatched = false;
+      return {
+        phase: "error",
+        narrate:
+          "I hit an issue kicking off the workflow. Give it another try.",
+      };
+    }
   }
 
   try {
@@ -150,11 +278,24 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
       systemPrompt: SYSTEM_PROMPT,
       greeting: GREETING,
       tools: TOOLS,
-      onUserTurn: (topic) => research(topic),
+      // Fallback: if the model doesn't call research_start on its own,
+      // kick dispatch from the first final user transcript. The tool call
+      // will then return the started narration as usual.
+      onUserTurn: async (topic) => {
+        const n = await research_start(topic);
+        return JSON.stringify(n);
+      },
       onToolCall: async (name, args) => {
-        if (name === "research") return research(String(args.topic ?? ""));
+        if (name === "research_start") {
+          const n = await research_start(String(args.topic ?? ""));
+          return JSON.stringify(n);
+        }
+        if (name === "next_update") {
+          const n = await nextNarration();
+          return JSON.stringify(n);
+        }
         logger.warn({ name }, "unknown tool call");
-        return "";
+        return JSON.stringify({ phase: "error", narrate: "Unknown tool." });
       },
       onEvent: (e) => {
         if (
@@ -167,11 +308,8 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
             text: e.text,
             final: e.kind === "user.transcript.final",
           });
-          // Fallback: if the model doesn't call `research` quickly, start the
-          // workflow ourselves from the first final transcript. Memoization
-          // in research() makes a later tool.call a no-op (returns same result).
-          if (e.kind === "user.transcript.final" && e.text.trim()) {
-            research(e.text.trim()).catch(() => {});
+          if (e.kind === "user.transcript.final" && e.text.trim() && !dispatched) {
+            research_start(e.text.trim()).catch(() => {});
           }
         }
         if (e.kind === "agent.transcript") {
@@ -217,6 +355,7 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
 
   const cleanup = () => {
     abort.abort();
+    unsubscribe?.();
     session?.close().catch(() => {});
   };
   browser.on("close", cleanup);
@@ -225,57 +364,11 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   safeSend(browser, { type: "ready" });
 }
 
-function waitForBriefing(
-  events: EventBus,
-  sessionId: string,
-  timeoutMs: number
-): Promise<{ briefingId: string; sourceCount: number }> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      unsubscribe();
-      reject(new Error(`briefing.ready timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
-    const unsubscribe = events.subscribe(sessionId, (e) => {
-      if (e.kind === "briefing.ready") {
-        clearTimeout(timer);
-        unsubscribe();
-        resolve({ briefingId: e.briefingId, sourceCount: e.sourceCount });
-      } else if (e.kind === "workflow.failed") {
-        clearTimeout(timer);
-        unsubscribe();
-        reject(new Error(`workflow.failed: ${e.message}`));
-      }
-    });
-  });
-}
-
-function composeNarration(
-  topic: string,
-  data: {
-    runId: string | null;
-    plannedCount: number;
-    angles: string[];
-    branchesComplete: number;
-    totalSources: number;
-  },
-  briefing: string
-): string {
-  const anglesList =
-    data.angles.length > 0
-      ? data.angles.slice(0, -1).join(", ") +
-        (data.angles.length > 1 ? ", and " : "") +
-        data.angles[data.angles.length - 1]
-      : "a few angles";
-
-  const prefix = [
-    `Okay — here's what I found on ${topic}.`,
-    `Render spun up a durable workflow to orchestrate this.`,
-    `Mastra's planner broke the topic into ${data.plannedCount || "a handful of"} angles — ${anglesList}.`,
-    `Then You.com ran ${data.branchesComplete || data.plannedCount || "those"} searches in parallel and came back with ${data.totalSources || "a stack of"} sources.`,
-    `Here's the briefing:`,
-  ].join(" ");
-
-  return `${prefix}\n\n${briefing}`;
+function formatList(items: string[]): string {
+  if (items.length === 0) return "a few angles";
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return items.slice(0, -1).join(", ") + ", and " + items[items.length - 1];
 }
 
 function safeSend(ws: BrowserWS, payload: unknown): void {
