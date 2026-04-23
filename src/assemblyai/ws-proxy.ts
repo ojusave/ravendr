@@ -31,20 +31,24 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   let session: VoiceSession | null = null;
   const abort = new AbortController();
 
-  // Fallback-dispatch latch: if AssemblyAI's agent never fires a tool.call
-  // (e.g., because its LLM doesn't follow our instruction), we still want the
-  // first final transcript to kick off research.
-  let dispatched = false;
-  const dispatch = async (topic: string): Promise<string> => {
-    if (dispatched) return "";
-    dispatched = true;
-    try {
-      return await onUserTurn(topic);
-    } catch (err) {
-      logger.error({ err, sessionId }, "dispatch failed");
-      dispatched = false;
-      return "I hit an issue dispatching that research. Try again in a moment.";
-    }
+  // Both the agent's tool.call AND the transcript.user.final fallback can
+  // race to start research. Cache the in-flight promise so whichever caller
+  // starts it wins, and every later caller (including the agent's tool.call)
+  // awaits the *same* promise and gets the finished briefing — no empty
+  // tool.result that causes the agent to improvise.
+  let dispatchPromise: Promise<string> | null = null;
+  const dispatch = (topic: string): Promise<string> => {
+    if (dispatchPromise) return dispatchPromise;
+    dispatchPromise = (async () => {
+      try {
+        return await onUserTurn(topic);
+      } catch (err) {
+        logger.error({ err, sessionId }, "dispatch failed");
+        dispatchPromise = null; // allow a retry on a fresh utterance
+        return "Sorry — the research workflow failed. Try again in a moment.";
+      }
+    })();
+    return dispatchPromise;
   };
 
   try {
@@ -60,8 +64,9 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
             text: e.text,
             final: e.kind === "user.transcript.final",
           });
-          // Fallback dispatch on first final transcript.
-          if (e.kind === "user.transcript.final" && !dispatched && e.text.trim()) {
+          // Fallback dispatch on first final transcript. Idempotent via
+          // dispatchPromise caching — both paths await the same promise.
+          if (e.kind === "user.transcript.final" && e.text.trim()) {
             dispatch(e.text.trim()).catch((err) =>
               logger.warn({ err }, "fallback dispatch threw")
             );

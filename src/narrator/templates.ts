@@ -36,6 +36,13 @@ const TEMPLATES: Partial<Record<PhaseEvent["kind"], Template>> = {
       ? pick(["Mastra's planning the approach.", "Breaking the topic down."])
       : pick(["Picking a research tier.", "Deciding how deep to go."]);
   },
+  "plan.ready": (e) => {
+    if (e.kind !== "plan.ready") return "";
+    return pick([
+      `Mastra drafted ${e.queries.length} research angles.`,
+      `${e.queries.length} parallel queries lined up.`,
+    ]);
+  },
   "youcom.call.started": (e) => {
     if (e.kind !== "youcom.call.started") return "";
     if (e.tier === "deep") return "Calling You.com, deep tier — this takes a minute or two.";

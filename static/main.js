@@ -103,6 +103,7 @@ function summarize(e) {
     case "workflow.completed": return `workflow.completed — briefing ${e.briefingId}`;
     case "workflow.failed": return `workflow.failed — ${e.message}`;
     case "agent.planning": return `agent.planning — ${e.step}`;
+    case "plan.ready": return `plan.ready — ${e.queries.length} queries: ${e.queries.map((q) => q.angle).join(", ")}`;
     case "agent.synthesizing": return "agent.synthesizing";
     case "youcom.call.started": return `youcom.call.started — ${e.tier}`;
     case "youcom.call.completed": return `youcom.call.completed — ${e.sourceCount} sources — ${e.latencyMs}ms`;

@@ -1,6 +1,7 @@
-import type { EventBus, ResearchProvider, ResearchSource } from "../shared/ports.js";
-import { VOICE_BRIEFING_PREAMBLE, RECENT_SCAN_PREAMBLE } from "./agent-prompts.js";
-import { addSources, completeBriefing, createBriefing, setSessionStatus } from "../render/db.js";
+import type { EventBus, ResearchProvider } from "../shared/ports.js";
+import { createBriefing, setSessionStatus } from "../render/db.js";
+import { getMastraMemory, threadForSession } from "../mastra/memory.js";
+import { createBriefingWorkflow } from "./workflow.js";
 import { logger } from "../shared/logger.js";
 import { AppError } from "../shared/errors.js";
 
@@ -8,6 +9,8 @@ export interface RunBriefingPorts {
   research: ResearchProvider;
   events: EventBus;
   databaseUrl: string;
+  anthropicApiKey: string;
+  anthropicModel: string;
 }
 
 export interface RunBriefingArgs {
@@ -18,137 +21,87 @@ export interface RunBriefingArgs {
 }
 
 /**
- * Hero chain body. You.com does both the research AND the synthesis — we just
- * frame the query for voice, strip inline citation markers for TTS, persist.
+ * Thin wrapper around the Mastra workflow.
  *
- *   emit(agent.planning) → You.com Standard (main briefing) →
- *   emit → You.com Lite (recent developments) → merge → persist → emit(briefing.ready)
+ *   1. Create the briefing row so we have an id to thread through.
+ *   2. Spin up a Mastra workflow (plan → search → synthesize) and run it.
+ *   3. On failure, mark the session and emit workflow.failed.
+ *   4. Best-effort Mastra memory write for cross-session continuity.
  */
 export async function runBriefing(
   args: RunBriefingArgs,
   ports: RunBriefingPorts
 ): Promise<{ briefingId: string; sourceCount: number }> {
-  const { sessionId, topic, runId, signal } = args;
-  const { research, events, databaseUrl } = ports;
+  const { sessionId, topic, runId } = args;
 
-  const briefingId = await createBriefing(databaseUrl, sessionId, topic, runId);
+  const briefingId = await createBriefing(ports.databaseUrl, sessionId, topic, runId);
 
-  const emit = (event: Parameters<EventBus["publish"]>[0]) =>
-    events.publish(event).catch((err) => logger.warn({ err }, "emit failed"));
+  const workflow = createBriefingWorkflow(ports);
 
   try {
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "agent.planning",
-      step: "decomposing_topic",
+    const run = await workflow.createRun();
+    const result = await run.start({
+      inputData: { sessionId, topic, runId, briefingId },
     });
 
-    // ── main briefing (voice-oriented) ────────────────────────────
-    const mainQuery = `${VOICE_BRIEFING_PREAMBLE}\n\nTopic: ${topic}`;
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.started",
-      query: mainQuery,
-      tier: "standard",
-    });
-    const main = await research.research({
-      query: mainQuery,
-      tier: "standard",
-      signal,
-    });
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.completed",
-      query: mainQuery,
-      tier: "standard",
-      sourceCount: main.sources.length,
-      latencyMs: main.latencyMs,
-    });
+    // Mastra's run result shape varies slightly; accept either the output
+    // directly or nested under `result` / `output`.
+    const out =
+      (result as { output?: unknown; result?: unknown } | undefined)?.output ??
+      (result as { result?: unknown })?.result ??
+      result;
 
-    // ── recency scan (cheap) ──────────────────────────────────────
-    const recentQuery = `${RECENT_SCAN_PREAMBLE}\n\nTopic: ${topic}`;
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.started",
-      query: recentQuery,
-      tier: "lite",
-    });
-    const recent = await research.research({
-      query: recentQuery,
-      tier: "lite",
-      signal,
-    });
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.completed",
-      query: recentQuery,
-      tier: "lite",
-      sourceCount: recent.sources.length,
-      latencyMs: recent.latencyMs,
-    });
+    const typed = out as { briefingId?: string; sourceCount?: number };
+    if (!typed?.briefingId) {
+      throw new Error("workflow completed without a briefingId");
+    }
 
-    // ── merge + strip inline citations so TTS reads naturally ─────
-    await emit({ sessionId, at: Date.now(), kind: "agent.synthesizing" });
-    const body = stripCitationMarkers(main.content);
-    const recentBlock = recent.content.trim()
-      ? `\n\nRecent developments:\n${stripCitationMarkers(recent.content)}`
-      : "";
-    const briefingContent = `${body}${recentBlock}`;
+    // ── Best-effort memory write for future sessions ────────────────
+    writeMemorySummary(ports.databaseUrl, sessionId, topic).catch((err) =>
+      logger.warn({ err }, "mastra memory write failed")
+    );
 
-    const allSources = mergeSources([...main.sources, ...recent.sources]);
-
-    await completeBriefing(databaseUrl, briefingId, briefingContent);
-    await addSources(databaseUrl, briefingId, allSources);
-    await setSessionStatus(databaseUrl, sessionId, "complete");
-
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "briefing.ready",
-      briefingId,
-      sourceCount: allSources.length,
-    });
-
-    return { briefingId, sourceCount: allSources.length };
+    return {
+      briefingId: typed.briefingId,
+      sourceCount: typed.sourceCount ?? 0,
+    };
   } catch (err) {
     logger.error({ err, sessionId }, "runBriefing failed");
-    await setSessionStatus(databaseUrl, sessionId, "error").catch(() => {});
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "workflow.failed",
-      runId,
-      message: err instanceof Error ? err.message : String(err),
-    });
+    await setSessionStatus(ports.databaseUrl, sessionId, "error").catch(() => {});
+    await ports.events
+      .publish({
+        sessionId,
+        at: Date.now(),
+        kind: "workflow.failed",
+        runId,
+        message: err instanceof Error ? err.message : String(err),
+      })
+      .catch(() => {});
     throw AppError.from(err, "UPSTREAM_WORKFLOW");
   }
 }
 
-/**
- * You.com emits inline markers like `[[1, 2]]` / `[1]` / `[1, 2, 3]`. They
- * read badly through TTS ("bracket one comma two bracket"). Strip them —
- * sources still appear on screen via the sources[] array.
- */
-function stripCitationMarkers(md: string): string {
-  return md
-    .replace(/\[\[\s*\d+(?:\s*,\s*\d+)*\s*\]\]/g, "") // [[1, 2]]
-    .replace(/\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g, "")    // [1] / [1, 2]
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function mergeSources(sources: ResearchSource[]): ResearchSource[] {
-  const seen = new Set<string>();
-  const out: ResearchSource[] = [];
-  for (const s of sources) {
-    if (seen.has(s.url)) continue;
-    seen.add(s.url);
-    out.push(s);
+async function writeMemorySummary(
+  databaseUrl: string,
+  sessionId: string,
+  topic: string
+): Promise<void> {
+  let memory: ReturnType<typeof getMastraMemory> | null;
+  try {
+    memory = getMastraMemory({ databaseUrl });
+  } catch {
+    return;
   }
-  return out;
+  const threadId = threadForSession(sessionId, "researcher");
+  const summary = `User researched topic "${topic}" at ${new Date().toISOString()}.`;
+  // Best-effort: Mastra's memory API varies by version. Try common shapes.
+  const m = memory as unknown as {
+    saveMessage?: (args: { threadId: string; content: string; role: string }) => Promise<unknown>;
+    addMessage?: (args: { threadId: string; content: string; role: string }) => Promise<unknown>;
+  };
+  if (typeof m.saveMessage === "function") {
+    await m.saveMessage({ threadId, content: summary, role: "system" });
+  } else if (typeof m.addMessage === "function") {
+    await m.addMessage({ threadId, content: summary, role: "system" });
+  }
 }

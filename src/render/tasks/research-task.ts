@@ -47,7 +47,13 @@ export const research = task(
 
       const result = await runBriefing(
         { sessionId, topic, runId },
-        { research: yresearch, events, databaseUrl: config.DATABASE_URL }
+        {
+          research: yresearch,
+          events,
+          databaseUrl: config.DATABASE_URL,
+          anthropicApiKey: config.ANTHROPIC_API_KEY,
+          anthropicModel: config.ANTHROPIC_MODEL,
+        }
       );
 
       await events.publish({

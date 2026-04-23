@@ -18,6 +18,10 @@ const BaseSchema = z.object({
 
   YOU_API_KEY: z.string().min(1),
   YOU_BASE_URL: z.string().url().default("https://api.you.com/v1"),
+
+  // Mastra's agents drive plan + synthesize; their LLM is Anthropic via AI SDK.
+  ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
 });
 
 const WebSchema = BaseSchema.extend({

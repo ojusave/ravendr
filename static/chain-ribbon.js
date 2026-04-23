@@ -9,6 +9,7 @@ const LANE_BY_KIND = {
   "workflow.failed": "render",
   "briefing.ready": "render",
   "agent.planning": "mastra",
+  "plan.ready": "mastra",
   "agent.synthesizing": "mastra",
   "youcom.call.started": "youcom",
   "youcom.call.completed": "youcom",
@@ -68,6 +69,9 @@ export function createRibbon(rootEl) {
           break;
         case "agent.planning":
           setSub("mastra", `planning · ${event.step}`);
+          break;
+        case "plan.ready":
+          setSub("mastra", `plan · ${event.queries.length} queries`);
           break;
         case "agent.synthesizing":
           setSub("mastra", "synthesizing");

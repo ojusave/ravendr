@@ -21,6 +21,13 @@ envVarGroups:
         sync: false
       - key: YOU_BASE_URL
         value: https://api.you.com/v1
+      - key: ANTHROPIC_API_KEY
+        displayName: Anthropic API key
+        description: "sk-ant-... — used by Mastra workflow planner + synthesizer"
+        sensitive: true
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-20250514
       - key: LOG_LEVEL
         value: info
       - key: NODE_VERSION
