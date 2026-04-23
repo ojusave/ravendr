@@ -1,4 +1,4 @@
-// Orchestrator: connects the mic button to the WebSocket + SSE + ribbon.
+// Orchestrator: connects the mic button to the WebSocket + SSE + ribbon + chat.
 
 import {
   createSession,
@@ -22,10 +22,21 @@ let active = false;
 let stopCapture = null;
 let ws = null;
 let closeEvents = null;
+let pendingUserBubble = null;
 const player = createPlayer();
 
 function setStatus(text) {
   statusEl.textContent = text;
+}
+
+function chatBubble(role, text, mode) {
+  const el = document.createElement("div");
+  el.className = `line bubble-${role}`;
+  el.innerHTML = `<b>${role === "user" ? "you" : role}</b> · ${escape(text)}`;
+  if (mode === "pending") el.style.opacity = "0.6";
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+  return el;
 }
 
 function log(line, event) {
@@ -37,14 +48,41 @@ function log(line, event) {
   logEl.scrollTop = logEl.scrollHeight;
 }
 
+function handleTranscript(msg) {
+  if (msg.role !== "user") return;
+  if (msg.final) {
+    if (pendingUserBubble) {
+      pendingUserBubble.innerHTML = `<b>you</b> · ${escape(msg.text)}`;
+      pendingUserBubble.style.opacity = "1";
+      pendingUserBubble = null;
+    } else {
+      chatBubble("user", msg.text);
+    }
+  } else {
+    if (!pendingUserBubble) {
+      pendingUserBubble = chatBubble("user", msg.text, "pending");
+    } else {
+      pendingUserBubble.innerHTML = `<b>you</b> · ${escape(msg.text)}`;
+    }
+  }
+}
+
 function handleEvent(event) {
   ribbon.onEvent(event);
+
+  // Render narrator speech as assistant bubbles in chat.
+  if (event.kind === "narrator.speech") {
+    chatBubble("assistant", event.text);
+    return;
+  }
+
   const summary = summarize(event);
   if (summary) log(summary, event);
+
   if (event.kind === "briefing.ready") {
     showBriefing(event.briefingId);
   } else if (event.kind === "workflow.failed") {
-    setStatus("Something went wrong");
+    setStatus(`Error: ${event.message.slice(0, 80)}`);
   }
 }
 
@@ -57,10 +95,9 @@ function summarize(e) {
     case "workflow.failed": return `workflow.failed — ${e.message}`;
     case "agent.planning": return `agent.planning — ${e.step}`;
     case "agent.synthesizing": return "agent.synthesizing";
-    case "youcom.call.started": return `youcom.call.started — ${e.tier} — ${e.query.slice(0, 48)}`;
+    case "youcom.call.started": return `youcom.call.started — ${e.tier}`;
     case "youcom.call.completed": return `youcom.call.completed — ${e.sourceCount} sources — ${e.latencyMs}ms`;
     case "briefing.ready": return `briefing.ready — ${e.sourceCount} sources`;
-    case "narrator.speech": return `narrator: ${e.text}`;
     default: return null;
   }
 }
@@ -100,19 +137,29 @@ async function start() {
   ribbon.reset();
   logEl.innerHTML = "";
   briefingEl.classList.remove("show");
+  pendingUserBubble = null;
 
   const sessionId = await createSession();
   closeEvents = openEventStream(sessionId, handleEvent);
   ws = openVoiceSocket(sessionId, {
-    onReady: () => setStatus("Listening — tell me what to research."),
+    onReady: () => setStatus("Listening — say a topic."),
     onAudio: (b64) => player.enqueue(b64),
     onEvent: handleEvent,
-    onError: (msg) => setStatus(`Voice error: ${msg}`),
-    onClose: () => active && stop(),
+    onTranscript: handleTranscript,
+    onError: (msg) => {
+      setStatus(`Voice error: ${msg}`);
+      log(`error: ${msg}`);
+    },
+    onClose: () => {
+      if (active) stop();
+    },
   });
 
   try {
-    stopCapture = await startCapture((audio) => ws.send({ type: "audio", audio }));
+    stopCapture = await startCapture((audio) => {
+      // Guard: WS may have closed mid-capture; ignore trailing frames.
+      if (ws && active) ws.send({ type: "audio", audio });
+    });
   } catch (err) {
     setStatus(`Mic denied: ${err.message}`);
     await stop();

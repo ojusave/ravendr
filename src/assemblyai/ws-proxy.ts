@@ -5,15 +5,17 @@ import { logger } from "../shared/logger.js";
 
 /**
  * Wires a browser-side WebSocket to an AssemblyAI VoiceSession and to the
- * phase-event bus. Called from routes/ws.ts when a client connects.
+ * phase-event bus.
  *
  * Browser frames we accept (JSON):
  *   { type: "audio", audio: <base64 PCM16/24k> }
  *
  * Browser frames we emit (JSON):
  *   { type: "audio", audio: <base64> }
+ *   { type: "transcript", role: "user", text: string, final: boolean }
  *   { type: "event", event: <PhaseEvent> }
  *   { type: "ready" }
+ *   { type: "error", message: string }
  */
 export interface WireOpts {
   browser: BrowserWS;
@@ -29,13 +31,45 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   let session: VoiceSession | null = null;
   const abort = new AbortController();
 
+  // Fallback-dispatch latch: if AssemblyAI's agent never fires a tool.call
+  // (e.g., because its LLM doesn't follow our instruction), we still want the
+  // first final transcript to kick off research.
+  let dispatched = false;
+  const dispatch = async (topic: string): Promise<string> => {
+    if (dispatched) return "";
+    dispatched = true;
+    try {
+      return await onUserTurn(topic);
+    } catch (err) {
+      logger.error({ err, sessionId }, "dispatch failed");
+      dispatched = false;
+      return "I hit an issue dispatching that research. Try again in a moment.";
+    }
+  };
+
   try {
     session = await voice.openSession({
       sessionId,
-      onUserTurn,
+      onUserTurn: dispatch,
       onEvent: (e) => {
+        // Forward user transcripts so the UI can show what AssemblyAI heard.
+        if (e.kind === "user.transcript.partial" || e.kind === "user.transcript.final") {
+          safeSend(browser, {
+            type: "transcript",
+            role: "user",
+            text: e.text,
+            final: e.kind === "user.transcript.final",
+          });
+          // Fallback dispatch on first final transcript.
+          if (e.kind === "user.transcript.final" && !dispatched && e.text.trim()) {
+            dispatch(e.text.trim()).catch((err) =>
+              logger.warn({ err }, "fallback dispatch threw")
+            );
+          }
+        }
         if (e.kind === "error") {
           logger.warn({ sessionId, message: e.message }, "voice upstream error");
+          safeSend(browser, { type: "error", message: e.message });
         }
       },
       signal: abort.signal,
@@ -48,7 +82,7 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
   }
 
   session.onAgentAudio((chunk) => {
-    safeSendBinary(browser, {
+    safeSend(browser, {
       type: "audio",
       audio: Buffer.from(chunk).toString("base64"),
     });
@@ -56,7 +90,6 @@ export async function wireVoiceSession(opts: WireOpts): Promise<void> {
 
   const unsubscribe = events.subscribe(sessionId, (event: PhaseEvent) => {
     safeSend(browser, { type: "event", event });
-    // Narrator speech is separately published via narrator.speech events.
     if (event.kind === "narrator.speech") {
       session?.say(event.text).catch((err) =>
         logger.warn({ err }, "narrator say failed")
@@ -93,10 +126,6 @@ function safeSend(ws: BrowserWS, payload: unknown): void {
   } catch {
     /* swallow — browser disconnected */
   }
-}
-
-function safeSendBinary(ws: BrowserWS, payload: unknown): void {
-  safeSend(ws, payload);
 }
 
 function parseJson(raw: unknown): Record<string, any> | null {
