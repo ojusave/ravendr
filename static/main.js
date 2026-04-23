@@ -72,36 +72,16 @@ function handleTranscript(msg) {
   }
 }
 
-// Browser TTS for narrator lines. AssemblyAI's VA has no server-initiated
-// speech API, so narrator phase lines are spoken here instead.
-const NARRATOR_VOICE = (() => {
-  try {
-    const voices = window.speechSynthesis?.getVoices() ?? [];
-    return voices.find((v) => /en[-_]US/i.test(v.lang) && /female|samantha|allison|karen/i.test(v.name))
-        ?? voices.find((v) => /en/i.test(v.lang))
-        ?? null;
-  } catch {
-    return null;
-  }
-})();
-
-function speakNarration(text) {
-  if (!("speechSynthesis" in window) || !text) return;
-  const u = new SpeechSynthesisUtterance(text);
-  if (NARRATOR_VOICE) u.voice = NARRATOR_VOICE;
-  u.rate = 1.05;
-  u.pitch = 1.0;
-  u.volume = 1.0;
-  window.speechSynthesis.speak(u);
-}
+// All voice output comes from AssemblyAI. Narrator phase lines are visual
+// only (chain ribbon + chat bubbles); the agent speaks the full briefing
+// when its `research` tool returns.
 
 function handleEvent(event) {
   ribbon.onEvent(event);
 
-  // Render narrator speech as assistant bubbles in chat AND speak it aloud.
+  // Narrator phase text → visual chat bubble (voice comes from AssemblyAI).
   if (event.kind === "narrator.speech") {
     chatBubble("assistant", event.text);
-    speakNarration(event.text);
     return;
   }
 
