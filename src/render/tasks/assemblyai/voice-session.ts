@@ -44,8 +44,7 @@ const SYSTEM_PROMPT = `You are Ravendr, a voice-first research assistant.
 
 When the user speaks a topic, call the \`research\` tool with their exact words. The tool takes about a minute — that is normal. Wait. When it returns, READ THE RETURNED TEXT OUT LOUD TO THE USER, word for word, in your natural voice. The returned text IS your spoken answer. After you finish reading it, stop. Do not paraphrase, do not shorten, do not add commentary, do not ask follow-ups.`;
 
-const GREETING =
-  "Hi — tell me any topic and I'll research it livedid yo";
+const GREETING = "Hi — tell me any topic and I'll research it.";
 
 export const voiceSession = task(
   {
