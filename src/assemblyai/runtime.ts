@@ -27,6 +27,7 @@ export interface AssemblyAIConfig {
 export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime {
   return {
     async openSession(opts: VoiceSessionOpts): Promise<VoiceSession> {
+      logger.info({ url: config.agentUrl }, "opening AssemblyAI WS");
       const ws = new WebSocket(config.agentUrl, {
         headers: { authorization: `Bearer ${config.apiKey}` },
       });
@@ -34,8 +35,21 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
       const audioListeners: ((chunk: Uint8Array) => void)[] = [];
       const pendingToolCalls = new Map<string, AbortController>();
 
+      // Handshake: resolve when the WS is open and session.update is sent.
+      // Proceed after a short timeout even if AssemblyAI's "session.ready"
+      // (or whatever equivalent) hasn't arrived — browser needs to progress.
+      const HANDSHAKE_TIMEOUT_MS = 5_000;
       const ready = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          logger.warn(
+            { state: ws.readyState },
+            "AssemblyAI handshake timed out — proceeding anyway"
+          );
+          resolve();
+        }, HANDSHAKE_TIMEOUT_MS);
+
         ws.once("open", () => {
+          logger.info("AssemblyAI WS open, sending session.update");
           ws.send(
             JSON.stringify({
               type: "session.update",
@@ -60,23 +74,41 @@ export function createAssemblyAIRuntime(config: AssemblyAIConfig): VoiceRuntime 
               },
             })
           );
+          clearTimeout(timer);
+          resolve();
         });
-        ws.once("error", (err) =>
-          reject(new AppError("UPSTREAM_VOICE", "voice ws error", { cause: err }))
-        );
-        const onMsg = (raw: Buffer) => {
-          const event = safeParse(raw);
-          if (event?.type === "session.ready") {
-            ws.off("message", onMsg);
-            resolve();
-          }
-        };
-        ws.on("message", onMsg);
+        ws.once("error", (err) => {
+          clearTimeout(timer);
+          logger.error({ err: (err as Error).message }, "AssemblyAI WS error");
+          reject(new AppError("UPSTREAM_VOICE", "voice ws error", { cause: err }));
+        });
+        ws.once("close", (code, reason) => {
+          clearTimeout(timer);
+          const reasonText = reason?.toString() ?? "";
+          logger.warn({ code, reason: reasonText }, "AssemblyAI WS closed during handshake");
+          reject(
+            new AppError(
+              "UPSTREAM_VOICE",
+              `voice ws closed before ready (code=${code} reason=${reasonText})`
+            )
+          );
+        });
       });
 
+      let debugMessageCount = 0;
       ws.on("message", async (raw: Buffer) => {
         const event = safeParse(raw);
-        if (!event) return;
+        if (!event) {
+          logger.warn({ raw: raw.toString("utf8").slice(0, 200) }, "non-JSON upstream message");
+          return;
+        }
+        if (debugMessageCount < 10) {
+          logger.info(
+            { type: event.type, keys: Object.keys(event).slice(0, 8) },
+            "AssemblyAI upstream message"
+          );
+          debugMessageCount++;
+        }
         switch (event.type) {
           case "session.ready":
             opts.onEvent?.({ kind: "session.ready" });
