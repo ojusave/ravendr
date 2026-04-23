@@ -9,7 +9,7 @@ Ravendr is a viral-demo-shaped web app that shows four vendors at four non-overl
 | Voice I/O runtime (STT · VAD · turn · TTS) | **AssemblyAI** Voice Agent API |
 | Compute, durable orchestration, state | **Render** (Web Service · Workflows · Postgres) |
 | Agent reasoning + memory | **Mastra** |
-| Deep research synthesis with citations | **You.com** Research API |
+| Research + LLM synthesis with inline citations | **You.com** Research API |
 
 When you tap the mic and say a topic, the whole chain lights up on screen while a voice narrator tells you what each platform is doing. The briefing itself is the dessert; the orchestration is the main course.
 
@@ -33,7 +33,7 @@ Browser ──(WS)──► Render Web Service ──(startTask)──► Render
                         LLM summarization)
 ```
 
-**Flow:** The user's voice utterance becomes a `research(topic)` tool call on AssemblyAI. The web service writes a session row, dispatches a Render Workflow task, and returns a short acknowledgement. The task runs multi-tier You.com calls (lite → standard → lite), synthesizes via Anthropic, writes the briefing to Postgres, and emits structured `PhaseEvent`s via `NOTIFY`. The web service `LISTEN`-s; every event goes both to the browser (SSE, for the chain ribbon) and to the narrator (which turns it into a short spoken line via `session.say()`).
+**Flow:** The user's voice utterance becomes a `research(topic)` tool call on AssemblyAI. The web service writes a session row, dispatches a Render Workflow task, and returns a short acknowledgement. The task runs two You.com calls (Standard for the main briefing, Lite for recent developments) — You.com's own LLM does the synthesis and returns a cited Markdown briefing. We strip the `[1, 2]`-style inline markers so TTS reads cleanly, keep the sources array for on-screen cards, write to Postgres, and emit structured `PhaseEvent`s via `NOTIFY`. The web service `LISTEN`-s; every event goes both to the browser (SSE, for the chain ribbon) and to the narrator (which turns it into a short spoken line via `session.say()`).
 
 ## Repo layout
 
@@ -49,8 +49,7 @@ src/
 
   assemblyai/            runtime.ts (VoiceRuntime port) · ws-proxy.ts
   mastra/                memory.ts (@mastra/pg)
-  youcom/                research.ts (ResearchProvider port)
-  anthropic/             llm.ts (LLMProvider port)
+  youcom/                research.ts (ResearchProvider port — also provides synthesis)
 
   render/
     db.ts                typed Postgres queries
@@ -64,7 +63,7 @@ scripts/migrate.ts       applies every .sql file in order
 render.yaml              Blueprint (web + db; Workflow service is created manually)
 ```
 
-Every vendor folder implements exactly one port (`VoiceRuntime`, `LLMProvider`, `ResearchProvider`, `EventBus`). `src/research/` and `src/narrator/` import only from `src/shared/ports.ts` — never from a vendor folder directly.
+Three vendor folders each implement exactly one port (`VoiceRuntime`, `ResearchProvider`, `EventBus`). `src/research/` and `src/narrator/` import only from `src/shared/ports.ts` — never from a vendor folder directly.
 
 ## Run locally
 
@@ -85,15 +84,15 @@ Open `http://localhost:3000`, grant mic permission, tap, and say a topic.
 1. **Fork** this repo.
 2. Click **Deploy to Render** — the Blueprint provisions `ravendr-web` and `ravendr-db`.
 3. **Create a Workflow service** (`ravendr-tasks`) manually in the dashboard, pointing at the same repo, using start command `node dist/render/tasks/index.js`. Set the same env group as the web service.
-4. Set the three secrets (`ANTHROPIC_API_KEY`, `YOUCOM_API_KEY`, `ASSEMBLYAI_API_KEY`, `RENDER_API_KEY`) on both services.
-5. Run migrations: `Shell` into the web service and `npm run migrate`.
+4. Set the three secrets (`YOUCOM_API_KEY`, `ASSEMBLYAI_API_KEY`, `RENDER_API_KEY`) on both services.
+5. Migrations run automatically on each deploy via `preDeployCommand: npm run migrate`. No manual step.
 
 ## What each platform earns
 
 - **AssemblyAI** — the only piece that can deliver sub-300ms turn-taking, barge-in, and a single-WebSocket voice loop. Owns the *feel*.
-- **Render Workflows** — where the 60–120s research task lives. No HTTP handler can carry a task that long.
-- **Mastra** — memory-backed agent primitives. Researcher loops + narrator state across sessions go here.
-- **You.com** — turnkey deep research with inline citations. Removes the need to build your own web-scale RAG.
+- **Render (Web Service · Workflows · Postgres)** — where the durable research task lives + all app state. No HTTP handler can carry a 30–60s task; no frontend can host a `LISTEN/NOTIFY` event bus.
+- **Mastra** — memory primitives; scoped to memory in v1, upgradable to a full agent loop later.
+- **You.com** — research *and* LLM synthesis *and* inline citations — one API call. Absorbs the layer that would otherwise be a separate LLM provider.
 
 Swap any one of them by writing a new adapter behind its port. No feature code changes.
 

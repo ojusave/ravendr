@@ -15,6 +15,7 @@ services:
     plan: starter
     healthCheckPath: /health
     buildCommand: npm ci && npm run build
+    preDeployCommand: npm run migrate
     startCommand: node dist/server.js
     autoDeploy: true
     envVars:
@@ -30,13 +31,6 @@ services:
         fromDatabase:
           name: ravendr-db
           property: connectionString
-      - key: ANTHROPIC_API_KEY
-        displayName: Anthropic API key
-        description: "sk-ant-... from https://console.anthropic.com/"
-        sensitive: true
-        sync: false
-      - key: ANTHROPIC_MODEL
-        value: claude-sonnet-4-20250514
       - key: YOUCOM_API_KEY
         displayName: You.com API key
         description: "From https://you.com/platform"

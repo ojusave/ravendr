@@ -2,10 +2,9 @@ import type { PhaseEvent, Tier } from "./events.js";
 
 /**
  * Ports — contracts the app depends on. Implementations live in vendor folders:
- *   VoiceRuntime   → src/assemblyai/runtime.ts
- *   LLMProvider    → src/anthropic/llm.ts
- *   ResearchProvider → src/youcom/research.ts
- *   EventBus       → src/render/event-bus.ts
+ *   VoiceRuntime     → src/assemblyai/runtime.ts
+ *   ResearchProvider → src/youcom/research.ts  (also handles synthesis + citations)
+ *   EventBus         → src/render/event-bus.ts
  *
  * Nothing in src/research, src/narrator, or src/routes imports a vendor
  * directly — everything goes through these interfaces. Swap-by-adapter.
@@ -49,22 +48,7 @@ export type VoiceEvent =
   | { kind: "agent.reply.done"; status: "ok" | "interrupted" }
   | { kind: "error"; message: string };
 
-// ─── LLM (Anthropic) ────────────────────────────────────────────────
-export interface LLMProvider {
-  /** One-shot generation. */
-  generate(input: LLMInput): Promise<string>;
-  /** Streaming generation. Yields incremental text chunks. */
-  stream(input: LLMInput): AsyncIterable<string>;
-}
-
-export interface LLMInput {
-  system?: string;
-  prompt: string;
-  maxTokens?: number;
-  signal?: AbortSignal;
-}
-
-// ─── Research (You.com) ─────────────────────────────────────────────
+// ─── Research (You.com — also provides synthesis + citations) ──────
 export interface ResearchProvider {
   research(input: ResearchInput): Promise<ResearchResult>;
 }

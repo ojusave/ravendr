@@ -8,9 +8,6 @@ const EnvSchema = z.object({
 
   DATABASE_URL: z.string().url(),
 
-  ANTHROPIC_API_KEY: z.string().min(1),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-20250514"),
-
   YOUCOM_API_KEY: z.string().min(1),
   YOUCOM_BASE_URL: z.string().url().default("https://api.you.com/v1"),
 

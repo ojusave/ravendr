@@ -1,11 +1,10 @@
-import type { EventBus, LLMProvider } from "../shared/ports.js";
+import type { EventBus } from "../shared/ports.js";
 import type { PhaseEvent } from "../shared/events.js";
 import { narrateEvent } from "./templates.js";
 import { logger } from "../shared/logger.js";
 
 export interface NarratorConfig {
   events: EventBus;
-  llm: LLMProvider;
   sessionId: string;
 }
 
@@ -13,17 +12,14 @@ export interface NarratorConfig {
  * Narrator: subscribes to phase events for a session and emits `narrator.speech`
  * events that the ws-proxy relays to AssemblyAI via session.say().
  *
- * v1: template-based (instant, zero LLM cost). For the final
- * "briefing.ready" moment, we call the LLM to produce a richer summary drawn
- * from the briefing content.
+ * Template-driven — no LLM in v1. Every phase event maps to one short line.
  */
 export function startNarrator(config: NarratorConfig): () => void {
   const { events, sessionId } = config;
   let lastSpeechAt = 0;
 
   const unsubscribe = events.subscribe(sessionId, async (event: PhaseEvent) => {
-    // Avoid echoing our own narrator speech back through the narrator.
-    if (event.kind === "narrator.speech") return;
+    if (event.kind === "narrator.speech") return; // don't echo ourselves
 
     const line = narrateEvent(event);
     if (!line) return;

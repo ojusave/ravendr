@@ -2,12 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { Context } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type {
-  EventBus,
-  LLMProvider,
-  ResearchProvider,
-  VoiceRuntime,
-} from "./shared/ports.js";
+import type { EventBus, ResearchProvider, VoiceRuntime } from "./shared/ports.js";
 import type { WorkflowDispatcher } from "./render/workflow-dispatcher.js";
 import {
   createSession,
@@ -25,7 +20,6 @@ export interface RoutesDeps {
   databaseUrl: string;
   events: EventBus;
   voice: VoiceRuntime;
-  llm: LLMProvider;
   research: ResearchProvider;
   dispatcher: WorkflowDispatcher;
 }
@@ -91,7 +85,6 @@ export function buildRoutes(deps: RoutesDeps): Hono {
       const narrator = attachNarrator({
         sessionId,
         events: deps.events,
-        llm: deps.llm,
       });
 
       const unsubscribe = deps.events.subscribe(sessionId, (event) => {

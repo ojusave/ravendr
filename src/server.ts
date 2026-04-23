@@ -3,7 +3,6 @@ import { WebSocketServer } from "ws";
 import { loadConfig } from "./config.js";
 import { logger } from "./shared/logger.js";
 import { buildRoutes } from "./routes.js";
-import { createAnthropicLLM } from "./anthropic/llm.js";
 import { createYouComResearch } from "./youcom/research.js";
 import { createAssemblyAIRuntime } from "./assemblyai/runtime.js";
 import { wireVoiceSession } from "./assemblyai/ws-proxy.js";
@@ -18,10 +17,6 @@ import { setSessionTopic, setSessionStatus } from "./render/db.js";
 async function main(): Promise<void> {
   const config = loadConfig();
 
-  const llm = createAnthropicLLM({
-    apiKey: config.ANTHROPIC_API_KEY,
-    model: config.ANTHROPIC_MODEL,
-  });
   const research = createYouComResearch({
     apiKey: config.YOUCOM_API_KEY,
     baseUrl: config.YOUCOM_BASE_URL,
@@ -42,7 +37,6 @@ async function main(): Promise<void> {
     databaseUrl: config.DATABASE_URL,
     events,
     voice,
-    llm,
     research,
     dispatcher,
   });
@@ -72,8 +66,6 @@ async function main(): Promise<void> {
         voice,
         events,
         onUserTurn: async (topic: string) => {
-          // User just spoke their topic. Dispatch the research workflow and
-          // return a short acknowledgment for AssemblyAI to speak.
           try {
             await setSessionTopic(config.DATABASE_URL, sessionId, topic);
             await setSessionStatus(config.DATABASE_URL, sessionId, "researching");

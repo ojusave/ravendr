@@ -1,17 +1,11 @@
-import type {
-  EventBus,
-  LLMProvider,
-  ResearchProvider,
-  ResearchSource,
-} from "../shared/ports.js";
-import { RESEARCHER_SYSTEM, renderBriefingPrompt } from "./agent-prompts.js";
+import type { EventBus, ResearchProvider, ResearchSource } from "../shared/ports.js";
+import { VOICE_BRIEFING_PREAMBLE, RECENT_SCAN_PREAMBLE } from "./agent-prompts.js";
 import { addSources, completeBriefing, createBriefing, setSessionStatus } from "../render/db.js";
 import { logger } from "../shared/logger.js";
 import { AppError } from "../shared/errors.js";
 
 export interface RunBriefingPorts {
   research: ResearchProvider;
-  llm: LLMProvider;
   events: EventBus;
   databaseUrl: string;
 }
@@ -24,20 +18,18 @@ export interface RunBriefingArgs {
 }
 
 /**
- * The hero chain body. Runs once per user ask.
+ * Hero chain body. You.com does both the research AND the synthesis — we just
+ * frame the query for voice, strip inline citation markers for TTS, persist.
  *
- *   emit(agent.planning) → You.com Lite → You.com Standard → You.com Lite (recent) →
- *   LLM synthesis → persist briefing + sources → emit(briefing.ready)
- *
- * Every step emits a PhaseEvent on the bus. Both the frontend (via ws) and
- * the narrator agent (in the web service) subscribe to those events.
+ *   emit(agent.planning) → You.com Standard (main briefing) →
+ *   emit → You.com Lite (recent developments) → merge → persist → emit(briefing.ready)
  */
 export async function runBriefing(
   args: RunBriefingArgs,
   ports: RunBriefingPorts
 ): Promise<{ briefingId: string; sourceCount: number }> {
   const { sessionId, topic, runId, signal } = args;
-  const { research, llm, events, databaseUrl } = ports;
+  const { research, events, databaseUrl } = ports;
 
   const briefingId = await createBriefing(databaseUrl, sessionId, topic, runId);
 
@@ -52,42 +44,17 @@ export async function runBriefing(
       step: "decomposing_topic",
     });
 
-    // ── Phase 1: quick overview ────────────────────────────────────
+    // ── main briefing (voice-oriented) ────────────────────────────
+    const mainQuery = `${VOICE_BRIEFING_PREAMBLE}\n\nTopic: ${topic}`;
     await emit({
       sessionId,
       at: Date.now(),
       kind: "youcom.call.started",
-      query: topic,
-      tier: "lite",
-    });
-    const overview = await research.research({ query: topic, tier: "lite", signal });
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.completed",
-      query: topic,
-      tier: "lite",
-      sourceCount: overview.sources.length,
-      latencyMs: overview.latencyMs,
-    });
-
-    // ── Phase 2: deeper standard pass ──────────────────────────────
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "agent.planning",
-      step: "choosing_tier",
-    });
-    const deepQuery = `Comprehensive overview: ${topic}. Include history, mechanism, and contested points.`;
-    await emit({
-      sessionId,
-      at: Date.now(),
-      kind: "youcom.call.started",
-      query: deepQuery,
+      query: mainQuery,
       tier: "standard",
     });
-    const deep = await research.research({
-      query: deepQuery,
+    const main = await research.research({
+      query: mainQuery,
       tier: "standard",
       signal,
     });
@@ -95,14 +62,14 @@ export async function runBriefing(
       sessionId,
       at: Date.now(),
       kind: "youcom.call.completed",
-      query: deepQuery,
+      query: mainQuery,
       tier: "standard",
-      sourceCount: deep.sources.length,
-      latencyMs: deep.latencyMs,
+      sourceCount: main.sources.length,
+      latencyMs: main.latencyMs,
     });
 
-    // ── Phase 3: recency scan ──────────────────────────────────────
-    const recentQuery = `Recent developments in the last 12 months: ${topic}`;
+    // ── recency scan (cheap) ──────────────────────────────────────
+    const recentQuery = `${RECENT_SCAN_PREAMBLE}\n\nTopic: ${topic}`;
     await emit({
       sessionId,
       at: Date.now(),
@@ -125,25 +92,15 @@ export async function runBriefing(
       latencyMs: recent.latencyMs,
     });
 
-    // ── Phase 4: LLM synthesis ─────────────────────────────────────
+    // ── merge + strip inline citations so TTS reads naturally ─────
     await emit({ sessionId, at: Date.now(), kind: "agent.synthesizing" });
-    const briefingContent = await llm.generate({
-      system: RESEARCHER_SYSTEM,
-      prompt: renderBriefingPrompt({
-        topic,
-        overview: overview.content,
-        deep: deep.content,
-        recent: recent.content,
-      }),
-      maxTokens: 2_048,
-      signal,
-    });
+    const body = stripCitationMarkers(main.content);
+    const recentBlock = recent.content.trim()
+      ? `\n\nRecent developments:\n${stripCitationMarkers(recent.content)}`
+      : "";
+    const briefingContent = `${body}${recentBlock}`;
 
-    const allSources = mergeSources([
-      ...overview.sources,
-      ...deep.sources,
-      ...recent.sources,
-    ]);
+    const allSources = mergeSources([...main.sources, ...recent.sources]);
 
     await completeBriefing(databaseUrl, briefingId, briefingContent);
     await addSources(databaseUrl, briefingId, allSources);
@@ -170,6 +127,19 @@ export async function runBriefing(
     });
     throw AppError.from(err, "UPSTREAM_WORKFLOW");
   }
+}
+
+/**
+ * You.com emits inline markers like `[[1, 2]]` / `[1]` / `[1, 2, 3]`. They
+ * read badly through TTS ("bracket one comma two bracket"). Strip them —
+ * sources still appear on screen via the sources[] array.
+ */
+function stripCitationMarkers(md: string): string {
+  return md
+    .replace(/\[\[\s*\d+(?:\s*,\s*\d+)*\s*\]\]/g, "") // [[1, 2]]
+    .replace(/\[\s*\d+(?:\s*,\s*\d+)*\s*\]/g, "")    // [1] / [1, 2]
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function mergeSources(sources: ResearchSource[]): ResearchSource[] {

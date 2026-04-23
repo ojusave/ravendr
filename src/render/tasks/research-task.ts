@@ -1,6 +1,5 @@
 import { task } from "@renderinc/sdk/workflows";
 import { loadConfig } from "../../config.js";
-import { createAnthropicLLM } from "../../anthropic/llm.js";
 import { createYouComResearch } from "../../youcom/research.js";
 import { createPostgresEventBus } from "../event-bus.js";
 import { runBriefing } from "../../research/runner.js";
@@ -27,10 +26,6 @@ export const research = task(
     logger.info({ sessionId, topic }, "research task start");
     const config = loadConfig();
 
-    const llm = createAnthropicLLM({
-      apiKey: config.ANTHROPIC_API_KEY,
-      model: config.ANTHROPIC_MODEL,
-    });
     const yresearch = createYouComResearch({
       apiKey: config.YOUCOM_API_KEY,
       baseUrl: config.YOUCOM_BASE_URL,
@@ -41,10 +36,7 @@ export const research = task(
     await events.start();
 
     try {
-      // runId is provided by Render at runtime in real deployments. For MVP
-      // we fall back to a timestamp-based id to keep the briefing row writable.
-      const runId =
-        process.env.RENDER_TASK_RUN_ID ?? `local-${Date.now()}`;
+      const runId = process.env.RENDER_TASK_RUN_ID ?? `local-${Date.now()}`;
 
       await events.publish({
         sessionId,
@@ -55,7 +47,7 @@ export const research = task(
 
       const result = await runBriefing(
         { sessionId, topic, runId },
-        { research: yresearch, llm, events, databaseUrl: config.DATABASE_URL }
+        { research: yresearch, events, databaseUrl: config.DATABASE_URL }
       );
 
       await events.publish({
