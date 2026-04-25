@@ -35,62 +35,6 @@ Behind the scenes the app classifies your ask, plans a fan-out of search queries
 
 ![Architecture](static/images/architecture-diagram.gif)
 
-The flow, step by step:
-
-1. **You click the mic.** The browser opens a WebSocket to the Render web service.
-2. **The web service starts a Workflow.** It calls `render.workflows.startTask("voice_session", ...)`, which runs the `voice_session` task on Render. That task opens its own WebSocket to AssemblyAI's Voice Agent and a second WebSocket back to the web service so audio frames can flow in both directions between the browser and AssemblyAI.
-3. **You speak a topic.** AssemblyAI transcribes the audio and decides to call its `research` tool with your topic.
-4. **The research chain runs.** The `voice_session` task dispatches a `research` subtask, which chains five more tasks: `classify_ask` (what shape is the question), `plan_queries` (turn it into N search queries), `search_branch` (run those queries against You.com in parallel), `synthesize` (write the briefing with citations), `verify` (does the briefing actually answer the question; one retry if not).
-5. **The activity feed updates live.** Each task publishes a phase event through Postgres `LISTEN/NOTIFY`. The web service relays those events over Server-Sent Events to the browser, which renders them as the activity stream you see on screen.
-6. **Briefing comes back.** When `verify` is satisfied (or the 60-second budget runs out), the briefing is returned to AssemblyAI as the tool result. AssemblyAI reads it aloud in a synthesized voice. The same content renders on screen with sources in the right-hand panel.
-
-## Why Render Workflows
-
-Render Workflows is a serverless task system. Each task is a TypeScript function wrapped in `task({ name, plan, timeoutSeconds, retry })`. It runs in its own isolated instance and shows up in the Render dashboard with logs, status, and a one-click replay.
-
-Three properties of Workflows shape the architecture here.
-
-**Durable run IDs.** When `POST /api/start` dispatches `voiceSession`, the SDK returns a `taskRunId` that survives browser disconnects and server restarts. The cleanup daemon uses that ID to cancel expired sessions later, regardless of which instance it runs on.
-
-**Per-task isolation and retry.** `classify_ask` runs on a small instance with a 30 second timeout and two retries. `search_branch` runs on a larger one with three minutes and an aggressive backoff. Each stage fails independently, so a flaky search branch does not poison the whole pipeline.
-
-**Observability and replay.** Every stage shows up as a separate task run in the Render dashboard. When something misbehaves you open the run, inspect its inputs and outputs, and replay it against the same snapshot. No log grepping across services.
-
-The `voiceSession` task is the root. It holds the AssemblyAI WebSocket and dispatches `research` as a subtask when the agent fires the tool call. `research` then chains the five Mastra and You.com stages under a 60 second budget. If the search fan-out runs long, `racePartial` ships whatever branches finished by the deadline rather than waiting for the rest.
-
-### Setting up the Workflow service
-
-In the Render Dashboard click **New > Workflow** and link this repo. Build command is `npm ci && npm run build` so the same compile step runs for both the web service and the workflow runner. Start command is `node dist/render/tasks/index.js`, which auto-registers every `task({...})` declaration under `src/render/tasks/` with Render.
-
-Each task is a TypeScript function wrapped with the SDK:
-
-```ts
-import { task } from "@renderinc/sdk/workflows";
-
-export const classify_ask = task(
-  {
-    name: "classify_ask",
-    plan: "starter",
-    timeoutSeconds: 30,
-    retry: { maxRetries: 2, waitDurationMs: 500, backoffScaling: 1.5 },
-  },
-  async (sessionId: string, topic: string) => {
-    // ...
-  },
-);
-```
-
-The web service triggers a registered task through the same SDK:
-
-```ts
-const { taskRunId } = await render.workflows.startTask(
-  `${WORKFLOW_SLUG}/voice_session`,
-  [{ sessionId, token, publicWebUrl }],
-);
-```
-
-`taskRunId` is the durable handle. The cleanup daemon hands it to `cancelTaskRun(taskRunId)` when a session expires.
-
 ## Prerequisites
 
 | Account / Tool | Why |
