@@ -16,24 +16,33 @@
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT" />
 </p>
 
+## What it does
+
+Tap the mic and say a research topic. Anything works: "Tell me about the Battle of Hastings", "List every tribe in the Bible", "Compare React Server Components and Remix loaders". About sixty seconds later, you get a cited briefing on screen, read aloud in a synthesized voice.
+
+Behind the scenes the app classifies your ask, plans a fan-out of search queries, hits You.com in parallel, writes the briefing with Anthropic Sonnet, and verifies it for completeness. Every one of those steps runs as its own Render Workflow task that you can open in the dashboard, inspect, and replay.
+
 ## Stack
 
 | | Platform | Job |
 |---|---|---|
-| <img src="./static/images/logos/render.svg" width="28" /> | **[Render Workflows](https://render.com/docs/workflows)** | Orchestrator. `voiceSession` task owns the session; `plan_queries → search_branch × N → synthesize` are independently-retried subtasks. |
-| <img src="./static/images/logos/assemblyai.png" width="28" /> | **[AssemblyAI Voice Agent](https://www.assemblyai.com/docs/voice-agents/voice-agent-api)** | STT + VAD + LLM + TTS in one WebSocket. Lives inside the voiceSession task. |
-| <img src="./static/images/logos/mastra.png" width="28" /> | **[Mastra](https://mastra.ai/docs/agents/overview)** | Agent primitive. Plans queries and writes the briefing using Anthropic **Sonnet 4** (see `ANTHROPIC_MODEL` in `src/config.ts`). |
-| <img src="./static/images/logos/youcom.png" width="28" /> | **[You.com Research](https://you.com/docs/search/overview)** | One call per planned angle, fanned out in parallel. |
+| <img src="./static/images/logos/render.svg" width="28" /> | **[Render Workflows](https://render.com/docs/workflows)** | Orchestrator. Every step of the pipeline runs as its own retriable, observable Render task. |
+| <img src="./static/images/logos/assemblyai.png" width="28" /> | **[AssemblyAI Voice Agent](https://www.assemblyai.com/docs/voice-agents/voice-agent-api)** | Speech in, speech out. A single streaming WebSocket that handles transcription, LLM reasoning, and text-to-speech. |
+| <img src="./static/images/logos/mastra.png" width="28" /> | **[Mastra](https://mastra.ai/docs/agents/overview)** | Agent runtime. Powers the classifier, planner, synthesizer, and verifier (Anthropic **Sonnet 4** under the hood, see `ANTHROPIC_MODEL` in `src/config.ts`). |
+| <img src="./static/images/logos/youcom.png" width="28" /> | **[You.com Research](https://you.com/docs/search/overview)** | The search layer. One call per planned angle, fanned out in parallel. |
 
 ## Architecture
 
 ![Architecture](static/images/architecture-diagram.gif)
 
-- Click mic → `POST /api/start` → Render dispatches `voiceSession`.
-- Task opens AssemblyAI and a reverse WS back to the broker; audio tunnels through.
-- You speak a topic. AssemblyAI fires `research(topic)`. The tool dispatches the research subtask.
-- Each subtask emits a phase event via Postgres NOTIFY → SSE → activity feed.
-- `briefing.ready` fires; tool.result returns the full briefing; AssemblyAI reads it aloud.
+The flow, step by step:
+
+1. **You click the mic.** The browser opens a WebSocket to the Render web service.
+2. **The web service starts a Workflow.** It calls `render.workflows.startTask("voice_session", ...)`, which runs the `voice_session` task on Render. That task opens its own WebSocket to AssemblyAI's Voice Agent and a second WebSocket back to the web service so audio frames can flow in both directions between the browser and AssemblyAI.
+3. **You speak a topic.** AssemblyAI transcribes the audio and decides to call its `research` tool with your topic.
+4. **The research chain runs.** The `voice_session` task dispatches a `research` subtask, which chains five more tasks: `classify_ask` (what shape is the question), `plan_queries` (turn it into N search queries), `search_branch` (run those queries against You.com in parallel), `synthesize` (write the briefing with citations), `verify` (does the briefing actually answer the question; one retry if not).
+5. **The activity feed updates live.** Each task publishes a phase event through Postgres `LISTEN/NOTIFY`. The web service relays those events over Server-Sent Events to the browser, which renders them as the activity stream you see on screen.
+6. **Briefing comes back.** When `verify` is satisfied (or the 60-second budget runs out), the briefing is returned to AssemblyAI as the tool result. AssemblyAI reads it aloud in a synthesized voice. The same content renders on screen with sources in the right-hand panel.
 
 ## Why Render Workflows
 
