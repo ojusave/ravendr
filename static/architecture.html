@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Ravendr — Architecture</title>
+<link rel="icon" href="https://render.com/icon.svg" type="image/svg+xml"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto:wght@300;400;500&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --ink:#18181b;
+    --muted:#71717a;
+    --line:#e4e4e7;
+    --bg:#fafafa;
+    --card:#ffffff;
+    --render:#6c63ff;
+  }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:"Inter","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;}
+  .page{max-width:1080px;margin:0 auto;padding:32px 24px 40px;}
+  svg.diagram{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+<div class="page">
+  <svg class="diagram" viewBox="0 0 1000 1520" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#18181b"/>
+      </marker>
+      <marker id="arrPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="#6c63ff"/>
+      </marker>
+
+      <style><![CDATA[
+        .t-title{font-family:Inter,sans-serif;font-size:13px;font-weight:600;fill:#18181b}
+        .t-sub{font-family:Inter,sans-serif;font-size:11px;fill:#71717a}
+        .t-edge{font-family:Inter,sans-serif;font-size:11px;fill:#71717a}
+        .t-panel{font-family:Roboto,Inter,sans-serif;font-size:18px;font-weight:300;letter-spacing:-0.01em}
+        .t-step{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:14px;font-weight:500;fill:#18181b}
+        .t-svc{font-family:Inter,sans-serif;font-size:13px;font-weight:600;fill:#18181b}
+        .t-desc{font-family:Inter,sans-serif;font-size:11px;fill:#52525b}
+        .t-note{font-family:Inter,sans-serif;font-size:10px;font-weight:500;fill:#6c63ff;letter-spacing:0.04em;text-transform:uppercase}
+        .t-vendor{font-family:Inter,sans-serif;font-size:10px;font-weight:500;fill:#52525b}
+
+        @keyframes flow { to { stroke-dashoffset: -20; } }
+        .flow { stroke-dasharray: 6 6; animation: flow 1.4s linear infinite; }
+      ]]></style>
+    </defs>
+
+    <!-- ============ USER (top) ============ -->
+    <g transform="translate(460,20)">
+      <circle cx="40" cy="18" r="13" fill="#fff" stroke="#18181b" stroke-width="1.5"/>
+      <path d="M12 84 Q12 36 40 36 Q68 36 68 84 Z" fill="#fff" stroke="#18181b" stroke-width="1.5"/>
+      <text x="40" y="104" text-anchor="middle" class="t-title">User</text>
+    </g>
+
+    <!-- User ↔ Web Service (WebSocket is bidirectional) -->
+    <path d="M500 134 L500 184" stroke="#18181b" stroke-width="1.4" fill="none" marker-start="url(#arr)" marker-end="url(#arr)" class="flow"/>
+    <text x="510" y="150" class="t-edge">Voice · WebSocket</text>
+    <text x="510" y="166" class="t-edge">+ Phase events (SSE)</text>
+
+    <!-- ============ RENDER WEB SERVICE (title only) ============ -->
+    <g transform="translate(80,200)">
+      <rect width="840" height="60" rx="0" fill="#fff" stroke="#6c63ff" stroke-width="1.6"/>
+      <image href="images/favicons/render.svg" x="316" y="18" width="24" height="24"/>
+      <text x="348" y="38" class="t-panel" fill="#6c63ff">Render Web Service</text>
+    </g>
+
+    <!-- Web Service ↔ Workflows (reverse WS is bidirectional; dispatch is one-way) -->
+    <path d="M500 280 L500 380" stroke="#18181b" stroke-width="1.4" fill="none" marker-start="url(#arr)" marker-end="url(#arr)" class="flow"/>
+    <text x="510" y="318" class="t-edge">startTask voice_session</text>
+    <text x="510" y="334" class="t-edge">reverse WS (audio frames both ways)</text>
+
+    <!-- ============ RENDER WORKFLOWS (main, top-down stages) ============ -->
+    <g transform="translate(80,400)">
+      <rect width="840" height="970" rx="0" fill="#fff" stroke="#6c63ff" stroke-width="1.6"/>
+      <image href="images/favicons/render.svg" x="330" y="18" width="24" height="24"/>
+      <text x="362" y="38" class="t-panel" fill="#6c63ff">Render Workflows</text>
+      <text x="420" y="58" text-anchor="middle" class="t-desc">Each stage runs as its own workflow task — isolated instance, retry policy, dashboard replay.</text>
+
+      <!-- Step 1: voice_session (root, outside the research bracket) -->
+      <g transform="translate(30,82)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">1</text>
+        <text x="80" y="40" class="t-step">voice_session</text>
+        <text x="80" y="64" class="t-desc">Holds the AssemblyAI WebSocket and the reverse WS back to the broker;</text>
+        <text x="80" y="80" class="t-desc">dispatches `research` as a subtask when the agent fires the tool call.</text>
+        <text x="80" y="102" class="t-note">root task</text>
+        <image href="images/favicons/assemblyai.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">AssemblyAI</text>
+      </g>
+
+      <!-- ─── research subtask bracket (steps 2–6) ─── -->
+      <g>
+        <rect x="16" y="230" width="808" height="720" fill="none" stroke="#6c63ff" stroke-width="1.2" stroke-dasharray="3 3"/>
+        <rect x="22" y="220" width="184" height="20" fill="#fff"/>
+        <text x="30" y="234" class="t-note">research · subtask chain</text>
+      </g>
+
+      <!-- Step 2: classify_ask -->
+      <g transform="translate(30,250)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">2</text>
+        <text x="80" y="40" class="t-step">classify_ask</text>
+        <text x="80" y="64" class="t-desc">Tags the ask with a shape —</text>
+        <text x="80" y="80" class="t-desc">narrative · enumeration · comparison · specific · recent</text>
+        <image href="images/favicons/mastra.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">Mastra</text>
+      </g>
+
+      <!-- Step 3: plan_queries -->
+      <g transform="translate(30,390)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">3</text>
+        <text x="80" y="40" class="t-step">plan_queries</text>
+        <text x="80" y="64" class="t-desc">Shape-aware planner —</text>
+        <text x="80" y="80" class="t-desc">up to 40 queries for enumeration asks, fewer for narrative</text>
+        <image href="images/favicons/mastra.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">Mastra</text>
+      </g>
+
+      <!-- Step 4: search_branch × N -->
+      <g transform="translate(30,530)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">4</text>
+        <text x="80" y="40" class="t-step">search_branch  ×  N</text>
+        <text x="80" y="64" class="t-desc">Parallel fan-out, deadline-capped —</text>
+        <text x="80" y="80" class="t-desc">racePartial collects whatever branches finish in time</text>
+        <image href="images/favicons/youcom.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">You.com</text>
+      </g>
+
+      <!-- Step 5: synthesize -->
+      <g transform="translate(30,670)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">5</text>
+        <text x="80" y="40" class="t-step">synthesize</text>
+        <text x="80" y="64" class="t-desc">Composes the briefing with a</text>
+        <text x="80" y="80" class="t-desc">shape-specific prompt + inline [N] citations</text>
+        <image href="images/favicons/mastra.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">Mastra</text>
+      </g>
+
+      <!-- Step 6: verify -->
+      <g transform="translate(30,810)">
+        <rect width="780" height="120" rx="0" fill="#fafafa" stroke="#e0dcff"/>
+        <circle cx="40" cy="40" r="16" fill="#6c63ff"/>
+        <text x="40" y="46" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">6</text>
+        <text x="80" y="40" class="t-step">verify</text>
+        <text x="80" y="64" class="t-desc">Judges the briefing against the ask;</text>
+        <text x="80" y="80" class="t-desc">one retry with feedback if it falls short</text>
+        <image href="images/favicons/mastra.png" x="690" y="24" width="56" height="56"/>
+        <text x="718" y="98" text-anchor="middle" class="t-vendor">Mastra</text>
+      </g>
+
+      <!-- Arrows between stages (vertical) + data-handoff labels -->
+      <g stroke="#6c63ff" stroke-width="1.4" fill="none" marker-end="url(#arrPurple)" class="flow">
+        <path d="M420 202 L420 250"/>
+        <path d="M420 370 L420 390"/>
+        <path d="M420 510 L420 530"/>
+        <path d="M420 650 L420 670"/>
+        <path d="M420 790 L420 810"/>
+      </g>
+      <text x="432" y="230" class="t-edge" fill="#6c63ff">topic</text>
+      <text x="432" y="384" class="t-edge" fill="#6c63ff">shape</text>
+      <text x="432" y="524" class="t-edge" fill="#6c63ff">queries</text>
+      <text x="432" y="664" class="t-edge" fill="#6c63ff">branches · sources</text>
+      <text x="432" y="804" class="t-edge" fill="#6c63ff">briefing</text>
+
+    </g>
+
+    <!-- Retry loop: verify → plan_queries (routed OUTSIDE the Workflows
+         panel on the right, vertical → horizontal → vertical). -->
+    <g stroke="#6c63ff" stroke-width="1.6" fill="none" stroke-dasharray="5 4">
+      <path d="M 890 1270 L 955 1270 L 955 850 L 890 850" marker-end="url(#arrPurple)"/>
+    </g>
+    <text x="962" y="1058" class="t-note">retry</text>
+    <text x="962" y="1072" class="t-edge" fill="#6c63ff">on fail</text>
+
+    <!-- Workflows ↔ Postgres -->
+    <path d="M500 1370 L500 1400" stroke="#18181b" stroke-width="1.4" fill="none" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="510" y="1388" class="t-edge">read / write</text>
+
+    <!-- ============ RENDER POSTGRES (DB cylinder) ============ -->
+    <g transform="translate(380,1410)">
+      <!-- Cylinder body: left side, front bottom arc, right side -->
+      <path d="M 0 12 L 0 72 A 120 10 0 0 0 240 72 L 240 12"
+            fill="#fff" stroke="#6c63ff" stroke-width="1.6"/>
+      <!-- Top rim -->
+      <ellipse cx="120" cy="12" rx="120" ry="10"
+               fill="#fafafa" stroke="#6c63ff" stroke-width="1.6"/>
+      <!-- Label centered on the body -->
+      <image href="images/favicons/render.svg" x="62" y="38" width="20" height="20"/>
+      <text x="88" y="53" class="t-panel" fill="#6c63ff">Render Postgres</text>
+    </g>
+  </svg>
+</div>
+</body>
+</html>
