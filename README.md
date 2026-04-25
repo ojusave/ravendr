@@ -49,6 +49,39 @@ Three properties of Workflows shape the architecture here.
 
 The `voiceSession` task is the root. It holds the AssemblyAI WebSocket and dispatches `research` as a subtask when the agent fires the tool call. `research` then chains the five Mastra and You.com stages under a 60 second budget. If the search fan-out runs long, `racePartial` ships whatever branches finished by the deadline rather than waiting for the rest.
 
+### Setting up the Workflow service
+
+In the Render Dashboard click **New > Workflow** and link this repo. Build command is `npm ci && npm run build` so the same compile step runs for both the web service and the workflow runner. Start command is `node dist/render/tasks/index.js`, which auto-registers every `task({...})` declaration under `src/render/tasks/` with Render.
+
+Each task is a TypeScript function wrapped with the SDK:
+
+```ts
+import { task } from "@renderinc/sdk/workflows";
+
+export const classify_ask = task(
+  {
+    name: "classify_ask",
+    plan: "starter",
+    timeoutSeconds: 30,
+    retry: { maxRetries: 2, waitDurationMs: 500, backoffScaling: 1.5 },
+  },
+  async (sessionId: string, topic: string) => {
+    // ...
+  },
+);
+```
+
+The web service triggers a registered task through the same SDK:
+
+```ts
+const { taskRunId } = await render.workflows.startTask(
+  `${WORKFLOW_SLUG}/voice_session`,
+  [{ sessionId, token, publicWebUrl }],
+);
+```
+
+`taskRunId` is the durable handle. The cleanup daemon hands it to `cancelTaskRun(taskRunId)` when a session expires.
+
 ## Run locally
 
 ```bash
@@ -106,10 +139,6 @@ src/
 
 static/                                 vanilla ES modules (index.html + main.js + mic.js)
 ```
-
-## Known limitation
-
-AssemblyAI's Voice Agent doesn't let the server force the agent to speak a specific string. After `tool.result` the agent's LLM usually reads the briefing aloud, but not always. When it goes silent, the briefing still renders on screen; voice is the soft path, UI is the hard one. For guaranteed single-voice narration of every phase, swap AssemblyAI for OpenAI Realtime (`conversation.item.create`).
 
 ## License
 
