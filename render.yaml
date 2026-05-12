@@ -63,7 +63,7 @@ services:
       - key: ASSEMBLYAI_AGENT_URL
         value: wss://agents.assemblyai.com/v1/realtime
       - key: ASSEMBLYAI_VOICE
-        value: claire
+        value: ivy
       - key: RENDER_API_KEY
         displayName: Render API key
         description: "Used to dispatch workflow tasks. From https://dashboard.render.com/settings/api-keys"
