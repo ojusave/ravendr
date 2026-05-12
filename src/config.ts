@@ -29,7 +29,7 @@ const BaseSchema = z.object({
     .string()
     .url()
     .default("wss://agents.assemblyai.com/v1/realtime"),
-  ASSEMBLYAI_VOICE: z.string().default("claire"),
+  ASSEMBLYAI_VOICE: z.string().default("ivy"),
 });
 
 const WebSchema = BaseSchema.extend({

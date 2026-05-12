@@ -67,7 +67,7 @@ export const voiceSession = task(
     const assemblyAgentUrl =
       process.env.ASSEMBLYAI_AGENT_URL ??
       "wss://agents.assemblyai.com/v1/realtime";
-    const voice = process.env.ASSEMBLYAI_VOICE ?? "claire";
+    const voice = process.env.ASSEMBLYAI_VOICE ?? "ivy";
 
     const events = createPostgresEventBus({
       connectionString: config.DATABASE_URL,
